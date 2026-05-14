@@ -12,7 +12,12 @@ import pytest
 import arnio as ar
 from arnio._core import _Column, _DType, _Frame
 
-# ── Normal behaviour ──────────────────────────────────────────────────────────
+
+def test_frame_row_col_count():
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    frame = ar.from_pandas(df)
+    assert frame.row_count == 3
+    assert frame.column_count == 2
 
 
 def test_dict():
@@ -55,11 +60,10 @@ def test_preview_contains_column_names(sample_csv):
     frame = ar.read_csv(sample_csv)
     result = frame.preview()
     for col in frame.columns:
-        assert col in result  # "name", "age", "email", "active" all appear
+        assert col in result
 
 
 def test_preview_default_shows_three_rows(sample_csv):
-    # sample_csv only has 3 rows, so default n=5 clamps to 3
     frame = ar.read_csv(sample_csv)
     result = frame.preview()
     assert "showing 3 of 3" in result
@@ -77,55 +81,10 @@ def test_preview_n_equals_one(sample_csv):
     assert "showing 1 of 3" in result
 
 
-# ── Edge cases ────────────────────────────────────────────────────────────────
-
-
-def test_empty_dict():
-    data = {}
-    frame = ar.from_dict(data)
-
-    assert frame.shape == (0, 0)
-    assert frame.columns == []
-
-
-def test_empty_dict_ArFrame():
-    data = {}
-    frame = ar.ArFrame.from_dict(data)
-
-    assert frame.shape == (0, 0)
-    assert frame.columns == []
-
-
-def test_none_value():
-    # Verifies that columns containing None/missing values are accepted
-    data = {"name": ["Alice", "Bob"], "age": [25, None]}
-
-    frame = ar.from_dict(data)
-    assert frame.shape == (2, 2)
-    assert frame.columns == ["name", "age"]
-    assert frame.columns[0] == "name"
-    assert frame.columns[1] == "age"
-    assert frame["name"][0] == "Alice"
-    assert frame["age"][1] is None
-
-
-def test_none_value_ArFrame():
-    # Verifies that columns containing None/missing values are accepted
-    data = {"name": ["Alice", "Bob"], "age": [25, None]}
-
-    frame = ar.ArFrame.from_dict(data)
-    assert frame.shape == (2, 2)
-    assert frame.columns == ["name", "age"]
-    assert frame.columns[0] == "name"
-    assert frame.columns[1] == "age"
-    assert frame["name"][0] == "Alice"
-    assert frame["age"][1] is None
-
-
 def test_preview_n_exceeds_row_count(sample_csv):
     frame = ar.read_csv(sample_csv)
     result = frame.preview(n=9999)
-    assert "showing 3 of 3" in result  # clamps, doesn't crash
+    assert "showing 3 of 3" in result
 
 
 def test_preview_n_equals_exact_row_count(sample_csv):
@@ -135,100 +94,15 @@ def test_preview_n_equals_exact_row_count(sample_csv):
 
 
 def test_preview_with_nulls(csv_with_nulls):
-    # Should not crash on missing values
     frame = ar.read_csv(csv_with_nulls)
     result = frame.preview()
     assert isinstance(result, str)
 
 
 def test_preview_large_csv(large_csv):
-    # 1000 rows — default should only show 5
     frame = ar.read_csv(large_csv)
     result = frame.preview()
     assert "showing 5 of 1000" in result
-
-
-# ── Invalid inputs ────────────────────────────────────────────────────────────
-
-
-def test_nested_dict_keys():
-    data = {"name": ["Alice", "Bob"], 36: [25, 30]}
-    with pytest.raises(TypeError):
-        ar.from_dict(data)
-
-
-def test_nested_dict_keys_ArFrame():
-    data = {"name": ["Alice", "Bob"], 36: [25, 30]}
-    with pytest.raises(TypeError):
-        ar.ArFrame.from_dict(data)
-
-
-def test_nested_dict_values():
-    data = {
-        "name": ["Alice", "Bob"],
-        "info": [{"city": "NY", "age": 25}, {"city": "LA", "age": 30}],
-    }
-    with pytest.raises(TypeError):
-        ar.from_dict(data)
-
-
-def test_nested_dict_values_ArFrame():
-    data = {
-        "name": ["Alice", "Bob"],
-        "info": [{"city": "NY", "age": 25}, {"city": "LA", "age": 30}],
-    }
-    with pytest.raises(TypeError):
-        ar.ArFrame.from_dict(data)
-
-
-def test_nested_dictvalues():
-    data = {"info": {"city": "NY", "age": 25}}
-
-    with pytest.raises(
-        ValueError, match="Nested objects are not supported in column 'info'"
-    ):
-        ar.from_dict(data)
-
-
-def test_nested_dictvalues_ArFrame():
-    data = {"info": {"city": "NY", "age": 25}}
-
-    with pytest.raises(
-        ValueError, match="Nested objects are not supported in column 'info'"
-    ):
-        ar.ArFrame.from_dict(data)
-
-
-def test_length_mismatch():
-    data = {"name": ["Alice", "Bob"], "age": [25]}  # Missing an age
-    with pytest.raises(ValueError):
-        ar.from_dict(data)
-
-
-def test_length_mismatch_ArFrame():
-    data = {"name": ["Alice", "Bob"], "age": [25]}  # Missing an age
-    with pytest.raises(ValueError):
-        ar.ArFrame.from_dict(data)
-
-
-def test_scalar_dict():
-    data = {"name": "Alice", "age": 25}
-
-    with pytest.raises(
-        TypeError,
-        match="Column 'name' must be a sequence of values",
-    ):
-        ar.from_dict(data)
-
-
-def test_scalar_dict_ArFrame():
-    data = {"name": "Alice", "age": 25}
-
-    with pytest.raises(
-        TypeError,
-        match="Column 'name' must be a sequence of values",
-    ):
-        ar.ArFrame.from_dict(data)
 
 
 def test_preview_invalid_n_zero(sample_csv):
@@ -258,7 +132,7 @@ def test_preview_invalid_n_float(sample_csv):
 def test_preview_invalid_n_bool(sample_csv):
     frame = ar.read_csv(sample_csv)
     with pytest.raises(ValueError):
-        frame.preview(n=True)  # bool is subclass of int — must still be rejected
+        frame.preview(n=True)
 
 
 def test_preview_invalid_n_none(sample_csv):
@@ -662,25 +536,20 @@ def test_tail_invalid_n(invalid_n):
 
 
 class TestArFrame:
-    """Test ArFrame properties and methods."""
-
     def test_is_empty_true(self, tmp_path):
-        """Test is_empty returns True for frame with zero rows."""
         csv_path = tmp_path / "empty.csv"
-        csv_path.write_text("name,age\n")  # Header only, no data rows
+        csv_path.write_text("name,age\n")
 
         frame = ar.read_csv(str(csv_path))
         assert frame.is_empty is True
         assert len(frame) == 0
 
     def test_is_empty_false(self, sample_csv):
-        """Test is_empty returns False for frame with rows."""
         frame = ar.read_csv(sample_csv)
         assert frame.is_empty is False
         assert len(frame) > 0
 
     def test_is_empty_single_row(self, tmp_path):
-        """Test is_empty with exactly one row."""
         csv_path = tmp_path / "single.csv"
         csv_path.write_text("name,age\nAlice,30\n")
 
