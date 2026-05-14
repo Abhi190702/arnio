@@ -1984,3 +1984,6 @@ arnio/
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
+## Troubleshooting
+
+- [Bad CSV Troubleshooting Guide](docs/bad_csv_troubleshooting.md)
