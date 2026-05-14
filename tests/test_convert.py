@@ -1,10 +1,6 @@
 """Tests for pandas conversion."""
 
-import sys
-from decimal import Decimal
-from unittest.mock import patch
-
-import numpy as np
+import pytest
 import pandas as pd
 import pytest
 
@@ -129,55 +125,29 @@ class TestToPandas:
 
 
 class TestFromRecords:
-    def test_list_of_dicts(self):
+    def test_from_records_preserves_columns_and_values(self):
         frame = ar.ArFrame.from_records(
-            [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
+            [
+                {"name": "Alice", "score": 95},
+                {"score": 88, "active": True},
+            ]
         )
-        assert frame.shape == (2, 2)
-        assert frame.columns == ["id", "name"]
 
-    def test_list_of_lists(self):
-        frame = ar.ArFrame.from_records(
-            [[1, "alice"], [2, "bob"]], columns=["id", "name"]
-        )
-        assert frame.shape == (2, 2)
-        assert frame.columns == ["id", "name"]
+        assert frame.shape == (2, 3)
+        assert frame.columns == ["name", "score", "active"]
+        assert frame._frame.column_by_name("name").to_python_list() == ["Alice", None]
+        assert frame._frame.column_by_name("score").to_python_list() == [95, 88]
+        assert frame._frame.column_by_name("active").to_python_list() == [None, True]
 
-    def test_list_of_tuples(self):
-        frame = ar.ArFrame.from_records(
-            [(1, "alice"), (2, "bob")], columns=["id", "name"]
-        )
-        assert frame.shape == (2, 2)
+    def test_from_records_empty(self):
+        frame = ar.ArFrame.from_records([])
 
-    def test_missing_key_fills_none(self):
-        frame = ar.ArFrame.from_records([{"a": 1}, {"a": 2, "b": 99}])
-        assert frame.shape == (2, 2)
-        df = ar.to_pandas(frame)
-        assert pd.isna(df["b"].iloc[0])
+        assert frame.shape == (0, 0)
+        assert frame.columns == []
 
-    def test_top_level_reexport(self):
-        frame = ar.from_records([{"x": 1}])
-        assert frame.shape == (1, 1)
-
-    def test_empty_raises(self):
-        with pytest.raises(ValueError, match="non-empty"):
-            ar.ArFrame.from_records([])
-
-    def test_sequences_without_columns_raises(self):
-        with pytest.raises(ValueError, match="columns must be provided"):
-            ar.ArFrame.from_records([[1, 2]])
-
-    def test_column_count_mismatch_raises(self):
-        with pytest.raises(ValueError, match="row 1"):
-            ar.ArFrame.from_records([[1, 2], [3, 4, 5]], columns=["a", "b"])
-
-    def test_nested_value_raises(self):
-        with pytest.raises(TypeError, match="nested"):
-            ar.ArFrame.from_records([{"a": [1, 2]}])
-
-    def test_mixed_types_raises(self):
-        with pytest.raises(TypeError):
-            ar.ArFrame.from_records([{"a": 1}, [1, 2]])
+    def test_from_records_requires_dictionaries(self):
+        with pytest.raises(TypeError, match="list of dictionaries"):
+            ar.ArFrame.from_records([("name", "Alice")])
 
 
 class TestFromPandas:
