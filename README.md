@@ -1952,12 +1952,6 @@ arnio/
 
 <br>
 
-
-## 📚 Documentation
-
-- Bad CSV Troubleshooting Guide → docs/bad_csv_troubleshooting.md
-
-<br>
 ---
 
 <br>

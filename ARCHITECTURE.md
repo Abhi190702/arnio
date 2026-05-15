@@ -172,21 +172,8 @@ Frame → to_pandas() → from_pandas() → Frame
 
 ---
 
-## CSV Parsing Limitations and Troubleshooting
-
-Arnio follows standard RFC 4180-style CSV parsing behavior. Malformed CSV input may raise parsing errors or produce inconsistent results.
-
-Common unsupported or problematic cases include:
-
-- Unclosed or malformed quoted fields
-- Inconsistent row widths
-- Delimiter mismatches
-- Missing header rows
-- Non-UTF-8 encoded files
-- Binary or corrupted input files
-
-For practical examples and fixes, see:
-- [Bad CSV Troubleshooting Guide](docs/bad_csv_troubleshooting.md)
+For practical examples of malformed CSV inputs and parser behavior, see:
+- docs/bad_csv_troubleshooting.md
 
 ## 6. Converting to Pandas
 
