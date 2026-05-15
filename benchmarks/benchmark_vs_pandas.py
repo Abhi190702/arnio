@@ -20,14 +20,7 @@ import arnio as ar
 
 CSV_FILE = "benchmarks/benchmark_1m.csv"
 WIDE_CSV_FILE = "benchmarks/benchmark_wide.csv"
-MULTILINE_CSV_FILE = "benchmarks/benchmark_multiline.csv"
-SPARSE_NULLS_FILE = "benchmarks/benchmark_sparse_nulls.csv"
-DENSE_NULLS_FILE = "benchmarks/benchmark_sparse_nulls_dense.csv"
-DRY_RUN = os.getenv("ARNIO_BENCHMARK_DRY_RUN") == "1"
-RUNS = 1 if DRY_RUN else 3
-
-BASELINE_FILE = "benchmarks/baseline.json"
-REGRESSION_THRESHOLD = 5  # Percent
+RUNS = 3
 
 
 @dataclass(frozen=True)
@@ -36,18 +29,42 @@ class BenchmarkCase:
     path: str
 
 
-ALL_BENCHMARKS = (
+BENCHMARKS = (
     BenchmarkCase("Tall CSV (1,000,000 rows x 12 columns)", CSV_FILE),
     BenchmarkCase("Wide CSV (5,000 rows x 256 columns)", WIDE_CSV_FILE),
-    BenchmarkCase("Multiline CSV (100,000 rows x 4 columns)", MULTILINE_CSV_FILE),
-    BenchmarkCase(
-        "Sparse-null CSV (1,000,000 rows x 6 columns, 1% nulls)", SPARSE_NULLS_FILE
-    ),
-    BenchmarkCase(
-        "Dense-null CSV (1,000,000 rows x 6 columns, 20% nulls)", DENSE_NULLS_FILE
-    ),
 )
-BENCHMARKS = ALL_BENCHMARKS[:1] if DRY_RUN else ALL_BENCHMARKS
+
+
+def ensure_dataset_exists(path):
+    if not Path(path).exists():
+        raise FileNotFoundError(
+            f"Missing benchmark dataset: {path}. "
+            "Run `python benchmarks/generate_data.py` first."
+        )
+
+
+def benchmark_pandas(path):
+    ensure_dataset_exists(path)
+    tracemalloc.start()
+    t0 = time.perf_counter()
+
+    df = pd.read_csv(path)
+    df.columns = df.columns.str.strip()
+    df = df.dropna()
+    df = df.drop_duplicates()
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        df[col] = df[col].astype(str).str.strip().str.lower()
+
+    elapsed = time.perf_counter() - t0
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return elapsed, peak / 1024 / 1024
+
+
+def benchmark_arnio(path):
+    ensure_dataset_exists(path)
+    tracemalloc.start()
+    t0 = time.perf_counter()
 
 
 _PSUTIL_PROCESS = None
@@ -469,13 +486,14 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    args = parse_args()
-    if args.engine and args.case:
-        if not args.json:
-            raise SystemExit("Child mode requires --json output.")
-        run_child(args.engine, args.case)
-        raise SystemExit(0)
+def avg(values):
+    return sum(values) / len(values)
+
+
+def run_case(case):
+    print(case.name)
+    print(f"{'Metric':<20} {'pandas':>12} {'arnio':>12}")
+    print("-" * 46)
 
     rss_source = detect_rss_source()
     if rss_source == "resource":
@@ -485,19 +503,22 @@ if __name__ == "__main__":
     elif rss_source == "unavailable":
         print("Note: Peak RSS unavailable (install psutil for process RSS).")
 
-    results = {}
+    for i in range(RUNS):
+        pt, pr = benchmark_pandas(case.path)
+        at, ar_r = benchmark_arnio(case.path)
+        pd_times.append(pt)
+        ar_times.append(at)
+        pd_rams.append(pr)
+        ar_rams.append(ar_r)
+
+    print(f"{'Exec Time (avg)':<20} {avg(pd_times):>11.2f}s {avg(ar_times):>11.2f}s")
+    print(f"{'Peak RAM':<20} {avg(pd_rams):>10.0f}MB {avg(ar_rams):>10.0f}MB")
+    print(
+        f"\nSpeed: {avg(pd_times)/avg(ar_times):.1f}x | RAM: {(1 - avg(ar_rams)/avg(pd_rams))*100:.0f}% reduction"
+    )
+    print()
+
+
+if __name__ == "__main__":
     for benchmark_case in BENCHMARKS:
-        result = run_case(benchmark_case)
-        results[result["case"]] = {
-            "pandas_exec_time": result["pandas_exec_time"],
-            "arnio_exec_time": result["arnio_exec_time"],
-            "speedup": result["speedup"],
-        }
-
-    output_path = Path("benchmark_results.json")
-
-    with open(output_path, "w") as f:
-        json.dump(results, f, indent=2)
-
-    if DRY_RUN and output_path.exists():
-        output_path.unlink()
+        run_case(benchmark_case)

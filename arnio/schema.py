@@ -1295,11 +1295,14 @@ class ValidationResult:
         }
 
     def summary(self) -> dict[str, Any]:
-        """Return a compact validation summary."""
+        """Return a compact validation summary.
+
+        Severity counts are not included because ``ValidationIssue`` does not
+        currently carry severity information.
+        """
         by_rule: dict[str, int] = {}
         by_column: dict[str, int] = {}
         by_column_and_rule: dict[str, dict[str, int]] = {}
-        severity_counts: dict[str, int] = {}
         for issue in self.issues:
             by_rule[issue.rule] = by_rule.get(issue.rule, 0) + 1
             severity_counts[issue.severity] = severity_counts.get(issue.severity, 0) + 1
@@ -1324,13 +1327,65 @@ class ValidationResult:
 
         return pd.DataFrame([issue.to_dict() for issue in self.issues])
 
-    def to_markdown(
-        self,
-        *,
-        max_issues: int | None = None,
-        redact_values: bool = False,
-    ) -> str:
+    def to_markdown(self, *, max_issues: int | None = None) -> str:
         """Return a GitHub-friendly Markdown validation report.
+
+        Parameters
+        ----------
+        max_issues : int, optional
+            Maximum number of issues to include in the table. When omitted, all
+            issues are shown.
+        """
+        if max_issues is not None and (
+            not isinstance(max_issues, int) or isinstance(max_issues, bool)
+        ):
+            raise TypeError("max_issues must be an integer or None")
+        if max_issues is not None and max_issues < 0:
+            raise ValueError("max_issues must be non-negative")
+
+        status = "passed" if self.passed else "failed"
+        lines = [
+            "## Validation Report",
+            "",
+            f"- Status: **{status}**",
+            f"- Rows checked: {self.row_count}",
+            f"- Issues found: {self.issue_count}",
+            f"- Bad rows: {len(self.bad_rows)}",
+        ]
+
+        if self.passed:
+            return "\n".join(lines)
+
+        visible_issues = self.issues if max_issues is None else self.issues[:max_issues]
+        if not visible_issues:
+            lines.extend(["", "_Issue table omitted by `max_issues=0`._"])
+            return "\n".join(lines)
+
+        lines.extend(
+            [
+                "",
+                "| Column | Rule | Row | Value | Message |",
+                "| --- | --- | ---: | --- | --- |",
+            ]
+        )
+        for issue in visible_issues:
+            lines.append(
+                "| "
+                f"{_markdown_cell(issue.column)} | "
+                f"{_markdown_cell(issue.rule)} | "
+                f"{_markdown_cell(issue.row_index)} | "
+                f"{_markdown_cell(_clean_scalar(issue.value))} | "
+                f"{_markdown_cell(issue.message)} |"
+            )
+
+        hidden_count = self.issue_count - len(visible_issues)
+        if hidden_count > 0:
+            lines.extend(
+                ["", f"_Showing {len(visible_issues)} of {self.issue_count} issues._"]
+            )
+
+        return "\n".join(lines)
+
 
         Parameters
         ----------
@@ -3443,7 +3498,6 @@ def _clean_scalar(value: Any) -> Any:
 
 
 def _markdown_cell(value: Any) -> str:
-    """Escape a value for safe rendering inside a Markdown table cell."""
     if value is None:
         return ""
     text = str(value).replace("\n", "<br>").replace("|", "\\|")

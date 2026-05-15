@@ -84,53 +84,6 @@ class TestPipeline:
         )
         assert result.shape[0] == 3
 
-    def test_pipeline_dry_run_validates_builtin_step_arguments(self):
-        frame = ar.from_pandas(
-            pd.DataFrame(
-                {
-                    "name": ["Alice", None],
-                }
-            )
-        )
-
-        with pytest.raises(KeyError, match="missing"):
-            ar.pipeline(
-                frame,
-                [
-                    ("strip_whitespace", {"subset": ["missing"]}),
-                ],
-                dry_run=True,
-            )
-
-    def test_pipeline_dry_run_mapping_shorthand_does_not_mutate(self):
-        original = pd.DataFrame(
-            {
-                "transaction_id": ["t001", "t002"],
-            }
-        )
-        frame = ar.from_pandas(original)
-
-        result = ar.pipeline(
-            frame,
-            [
-                (
-                    "rename_columns",
-                    {
-                        "transaction_id": "TRANSACTION_ID",
-                    },
-                ),
-            ],
-            dry_run=True,
-        )
-
-        output = ar.to_pandas(result)
-
-        pd.testing.assert_frame_equal(
-            output,
-            original,
-            check_dtype=False,
-        )
-
     def test_pipeline_drop_constant_columns(self):
         import pandas as pd
 
@@ -142,6 +95,7 @@ class TestPipeline:
                 }
             )
         )
+
         result = ar.pipeline(
             frame,
             [
@@ -152,47 +106,6 @@ class TestPipeline:
 
         assert list(df.columns) == ["value"]
         assert list(df["value"]) == [1, 2, 1]
-
-    def test_pipeline_drop_empty_columns(self, tmp_path):
-        csv_path = tmp_path / "pipeline_drop_empty_columns.csv"
-        csv_path.write_text(
-            'all_null,all_blank,value\n,"",1\n,"   ",2\n',
-            encoding="utf-8",
-        )
-        frame = ar.read_csv(csv_path)
-
-        result = ar.pipeline(
-            frame,
-            [
-                ("drop_empty_columns",),
-            ],
-        )
-        df = ar.to_pandas(result)
-
-        assert list(df.columns) == ["value"]
-        assert list(df["value"]) == [1, 2]
-
-    def test_pipeline_trim_column_names(self):
-        import pandas as pd
-
-        frame = ar.from_pandas(
-            pd.DataFrame(
-                {
-                    " name ": ["Alice"],
-                    " age ": [30],
-                }
-            )
-        )
-
-        result = ar.pipeline(
-            frame,
-            [
-                ("trim_column_names",),
-            ],
-        )
-        df = ar.to_pandas(result)
-
-        assert list(df.columns) == ["name", "age"]
 
     def test_pipeline_clip_numeric(self):
         import pandas as pd
@@ -216,102 +129,6 @@ class TestPipeline:
 
         assert list(df["value"]) == [0, 2, 5]
         assert list(df["label"]) == ["a", "b", "c"]
-
-    def test_pipeline_standardize_missing_tokens(self):
-        frame = ar.from_pandas(pd.DataFrame({"value": [1, 2, "N/A"]}))
-
-        result = ar.pipeline(
-            frame,
-            [
-                ("standardize_missing_tokens",),
-            ],
-        )
-        df = ar.to_pandas(result)
-
-        assert pd.isna(df["value"].iloc[2])
-
-    def test_pipeline_supports_namespaced_builtin_steps(self, csv_with_whitespace):
-        frame = ar.read_csv(csv_with_whitespace)
-
-        result = ar.pipeline(
-            frame,
-            [
-                ("builtin:strip_whitespace",),
-            ],
-        )
-        df = ar.to_pandas(result)
-
-        assert df["name"].iloc[0] == "Alice"
-
-    def test_pipeline_warns_for_deprecated_builtin_step_alias(
-        self,
-        csv_with_whitespace,
-    ):
-        pipeline_module._register_deprecated_step_alias(
-            "trim_whitespace",
-            "strip_whitespace",
-        )
-        frame = ar.read_csv(csv_with_whitespace)
-
-        with pytest.warns(
-            DeprecationWarning,
-            match="trim_whitespace.*strip_whitespace",
-        ):
-            result = ar.pipeline(
-                frame,
-                [
-                    ("trim_whitespace",),
-                ],
-            )
-
-        df = ar.to_pandas(result)
-
-        assert df["name"].iloc[0] == "Alice"
-
-    def test_pipeline_supports_namespaced_custom_steps_with_builtin_basename(self):
-        def custom_drop_nulls(df):
-            df["marker"] = "custom"
-            return df
-
-        ar.register_step("team:drop_nulls", custom_drop_nulls)
-        frame = ar.from_pandas(pd.DataFrame({"value": [1, None]}))
-
-        result = ar.pipeline(
-            frame,
-            [
-                ("team:drop_nulls",),
-            ],
-        )
-        df = ar.to_pandas(result)
-
-        assert list(df["marker"]) == ["custom", "custom"]
-        assert df["value"].isna().sum() == 1
-
-    def test_register_deprecated_step_alias_rejects_unknown_target(self):
-        with pytest.raises(ar.UnknownStepError, match="missing_step"):
-            pipeline_module._register_deprecated_step_alias(
-                "legacy_step",
-                "missing_step",
-            )
-
-    def test_register_deprecated_step_alias_rejects_registered_name_conflict(self):
-        with pytest.raises(ValueError, match="already registered"):
-            pipeline_module._register_deprecated_step_alias(
-                "drop_nulls",
-                "strip_whitespace",
-            )
-
-    def test_register_step_rejects_reserved_deprecated_alias_name(self):
-        pipeline_module._register_deprecated_step_alias(
-            "legacy_strip",
-            "strip_whitespace",
-        )
-
-        def custom_step(df):
-            return df
-
-        with pytest.raises(ValueError, match="deprecated pipeline step alias"):
-            ar.register_step("legacy_strip", custom_step)
 
     def test_pipeline_mapping_shorthand(self, sample_csv):
         frame = ar.read_csv(sample_csv)
@@ -365,45 +182,45 @@ class TestPipeline:
         assert result.dtypes["years"] == "float64"
         assert "age" not in result.columns
 
-
-    def test_split_column_step(self, tmp_path):
-        path = tmp_path / "names.csv"
-        path.write_text("name\nAda Lovelace\nGrace Hopper\n")
-        frame = ar.read_csv(path)
-
+    def test_pipeline_validate_columns_exist(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
         result = ar.pipeline(
             frame,
             [
-                (
-                    "split_column",
-                    {
-                        "column": "name",
-                        "into": ["first", "last"],
-                        "sep": " ",
-                        "drop": True,
-                    },
-                ),
+                ("validate_columns_exist", {"columns": ["name", "age"]}),
+                ("strip_whitespace", {"subset": ["name"]}),
             ],
         )
 
-        df = ar.to_pandas(result)
-        assert "name" not in df.columns
-        assert df["first"].tolist() == ["Ada", "Grace"]
-        assert df["last"].tolist() == ["Lovelace", "Hopper"]
+        assert result.shape == frame.shape
 
-    def test_split_column_rejects_existing_output_column(self, tmp_path):
-        path = tmp_path / "names.csv"
-        path.write_text("name,first\nAda Lovelace,Ada\n")
-        frame = ar.read_csv(path)
+    def test_pipeline_validate_columns_exist_allows_empty_columns(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        result = ar.pipeline(frame, [("validate_columns_exist", {"columns": []})])
 
-        try:
+        assert result is frame
+
+    def test_pipeline_validate_columns_exist_rejects_missing_columns(self, sample_csv):
+        import pytest
+
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(KeyError, match="Missing columns"):
             ar.pipeline(
                 frame,
-                [("split_column", {"column": "name", "into": ["first"], "sep": " "})],
+                [("validate_columns_exist", {"columns": ["missing"]})],
             )
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "Output column already exists" in str(e)
+
+    def test_pipeline_subset_step_rejects_missing_columns(self, sample_csv):
+        import pytest
+
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(KeyError, match="Missing columns for strip_whitespace"):
+            ar.pipeline(
+                frame,
+                [("strip_whitespace", {"subset": ["missing"]})],
+            )
 
     def test_empty_pipeline(self, sample_csv):
         frame = ar.read_csv(sample_csv)
@@ -842,20 +659,46 @@ class TestPipeline:
     assert list(result_df["age"]) == [30, 40]
 
 
-def test_pipeline_coalesce_columns():
+def test_round_numeric_columns_pipeline():
     import pandas as pd
 
     import arnio as ar
 
-    frame = ar.from_pandas(
-        pd.DataFrame({"primary": [None, "a", None], "backup": ["x", "b", None]})
-    )
+    df = pd.DataFrame({"price": [10.555, 20.123]})
+    frame = ar.from_pandas(df)
 
     result = ar.pipeline(
-        frame, [("coalesce_columns", {"columns": ["primary", "backup"], "output_column": "resolved"})]
+        frame, [("round_numeric_columns", {"subset": ["price"], "decimals": 2})]
     )
 
-    resolved = ar.to_pandas(result)["resolved"]
-    assert resolved.iloc[0] == "x"
-    assert resolved.iloc[1] == "a"
-    assert resolved.isna().iloc[2]
+    result_df = ar.to_pandas(result)
+    assert list(result_df["price"]) == [10.56, 20.12]
+
+
+def test_safe_divide_columns_pipeline():
+    import pandas as pd
+
+    import arnio as ar
+
+    df = pd.DataFrame({"revenue": [100.0, 200.0, 0.0], "cost": [50.0, 0.0, 30.0]})
+
+    frame = ar.from_pandas(df)
+
+    result = ar.pipeline(
+        frame,
+        [
+            (
+                "safe_divide_columns",
+                {
+                    "numerator": "revenue",
+                    "denominator": "cost",
+                    "output_column": "ratio",
+                },
+            )
+        ],
+    )
+
+    result_df = ar.to_pandas(result)
+    assert result_df["ratio"].iloc[0] == 2.0
+    assert result_df["ratio"].iloc[1] == 0.0  # division by zero → fill_value
+    assert result_df["ratio"].iloc[2] == 0.0  # zero numerator

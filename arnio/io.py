@@ -33,15 +33,7 @@ from .frame import ArFrame
 
 def _is_utf8_encoding(encoding: str) -> bool:
     """Return whether the encoding should be treated as raw UTF-8 input."""
-    if not isinstance(encoding, str):
-        raise TypeError(f"encoding must be a string, got {type(encoding).__name__!r}")
     return encoding.lower().replace("_", "-") in {"utf-8", "utf8"}
-
-
-def _raise_csv_path_os_error(path: str, error: OSError) -> None:
-    """Raise a path-aware CsvReadError for filesystem access failures."""
-    reason = error.strerror or str(error)
-    raise CsvReadError(f"Could not access CSV file {path!r}: {reason}") from error
 
 
 @contextmanager
@@ -213,7 +205,7 @@ def read_csv(
     nrows: int | None = None,
     skiprows: int | None = None,
     encoding: str = "utf-8",
-    null_values: set[str] | None = None,
+    trim_headers: bool = True,
 ) -> ArFrame:
     """Read a CSV file into an ArFrame via C++ backend.
 
@@ -243,11 +235,8 @@ def read_csv(
         If None, no lines are skipped.
     encoding : str, default "utf-8"
         File encoding.
-    null_values : set[str], optional
-        Set of strings to treat as null/missing values.
-        Defaults to pandas-compatible set:
-        {"NA", "N/A", "null", "None", "NaN", "nan", "#N/A", "-"}.
-        Pass an empty set to disable null sentinel recognition.
+    trim_headers : bool, default True
+        Strip leading/trailing whitespace from column names.
 
     Returns
     -------
@@ -690,13 +679,21 @@ def write_csv(
             f"Unsupported file format: {path}. Only .csv, .txt, and .tsv are supported."
         )
 
-    delimiter = _validate_delimiter(delimiter)
-    if not isinstance(line_terminator, str):
-        raise TypeError("line_terminator must be a string")
-    if line_terminator not in {"\n", "\r\n", "\r"}:
-        raise ValueError(
-            f"line_terminator must be one of '\\n', '\\r\\n', or '\\r', got {line_terminator!r}"
-        )
+    if _is_utf8_encoding(encoding):
+        try:
+            with open(path, "rb") as f:
+                if b"\0" in f.read(1024):
+                    raise CsvReadError(
+                        "CSV input contains NUL bytes and appears to be binary or corrupted"
+                    )
+        except FileNotFoundError:
+            pass  # Let C++ backend handle or raise standard error
+
+    try:
+        if os.path.getsize(path) == 0:
+            raise CsvReadError(f"CSV file is empty: {path!r}")
+    except FileNotFoundError:
+        pass  # Let C++ backend handle or raise standard error
 
     # Validate encoding and encoding_errors before any file I/O.
     _validate_jsonl_encoding(encoding)
@@ -706,11 +703,7 @@ def write_csv(
     config.delimiter = delimiter
     config.has_header = has_header
     config.encoding = encoding
-    if comment is not None and len(comment) != 1:
-        raise ValueError("comment must be a single character")
-
-    if null_values is not None:
-        config.null_values = null_values
+    config.trim_headers = trim_headers
 
     if usecols is not None:
         config.usecols = usecols
@@ -750,7 +743,7 @@ def scan_csv(
     *,
     delimiter: str | None = None,
     encoding: str = "utf-8",
-    null_values: set[str] | None = None,
+    trim_headers: bool = True,
 ) -> dict[str, str]:
     """Return schema (column names + inferred types) without loading data.
 
@@ -768,10 +761,8 @@ def scan_csv(
         explicit value always takes precedence.
     encoding : str, default "utf-8"
         File encoding. Non-UTF-8 inputs are transcoded before native scanning.
-    null_values : set[str], optional
-        Set of strings to treat as null/missing values.
-        Defaults to pandas-compatible set:
-        {"NA", "N/A", "null", "None", "NaN", "nan", "#N/A", "-"}.
+    trim_headers : bool, default True
+        Strip leading/trailing whitespace from column names.
 
         Values containing delimiter characters must still be quoted
         properly in the CSV input. For example, when using a comma
@@ -828,133 +819,26 @@ def scan_csv(
 
     native_path, should_cleanup, _ = _materialize_csv_input(path, caller="scan_csv")
 
+    if _is_utf8_encoding(encoding):
+        try:
+            with open(path, "rb") as f:
+                if b"\0" in f.read(1024):
+                    raise CsvReadError(
+                        "CSV input contains NUL bytes and appears to be binary or corrupted"
+                    )
+        except FileNotFoundError:
+            pass  # Let C++ backend handle or raise standard error
     try:
-        _validate_csv_path(native_path, encoding, reject_utf8_nul_bytes=False)
+        if os.path.getsize(path) == 0:
+            raise CsvReadError(f"CSV file is empty: {path!r}")
 
-        path_lower = native_path.lower()
-
-        # Resolve the sentinel: auto-detect tab for .tsv only when the caller
-        # truly omitted delimiter (None).  An explicit delimiter="," is always
-        # honoured, even for .tsv paths.
-        if delimiter is None:
-            delimiter = "\t" if path_lower.endswith(".tsv") else ","
-
-        decimal_separator = _validate_decimal_separator(decimal_separator)
-        _validate_thousands_separator(thousands_separator, decimal_separator)
-        delimiter = _validate_delimiter(delimiter)
-        encoding_errors = _validate_encoding_errors(encoding_errors)
-        mode = _validate_parser_mode(mode)
-        on_bad_lines = _validate_on_bad_lines(on_bad_lines)
-        config = _CsvConfig()
-        config.delimiter = delimiter
-        config.encoding = encoding
-        config.trim_headers = _validate_bool_option(trim_headers, "trim_headers")
-        config.decimal_separator = decimal_separator
-        config.thousands_separator = thousands_separator
-        config.has_header = _validate_bool_option(has_header, "has_header")
-        config.encoding_errors = encoding_errors
-        config.mode = mode
-
-        if null_values is not None:
-            config.null_values = _validate_null_values(null_values)
-
-        if sample_size is not None:
-            if not isinstance(sample_size, int) or isinstance(sample_size, bool):
-                raise TypeError("sample_size must be an integer.")
-            if sample_size <= 0:
-                raise ValueError(
-                    "sample_size must be a positive integer greater than 0."
-                )
-            config.sample_size = sample_size
-
-        reader = _CsvReader(config)
-        # Schema inference only needs a sample, avoiding full-file transcode.
-        # For scan_csv, if sample_rows is specified, we use that for sniffing the schema.
-        # sample_rows is passed so _utf8_csv_path uses record-aware sampling
-        # without rewriting decoded CSV text before native parsing.
-        with _utf8_csv_path(
-            native_path,
-            encoding,
-            encoding_errors=encoding_errors,
-            delimiter=delimiter,
-            sample_rows=100 if sample_size is None else sample_size,
-        ) as native_csv_path:
-            schema, bad_row_msgs = reader.scan_schema(native_csv_path, on_bad_lines)
-            if on_bad_lines == "warn" and bad_row_msgs:
-                warnings.warn(
-                    f"{len(bad_row_msgs)} malformed CSV row(s) skipped during schema inference:\n"
-                    + "\n".join(f"  {m}" for m in bad_row_msgs),
-                    UserWarning,
-                    stacklevel=2,
-                )
-            return cast(dict[str, str], schema)
-    except (ValueError, TypeError):
-        raise
-    except CsvReadError:
-        raise
-    except RuntimeError as e:
-        assert delimiter is not None
-        raise _enrich_csv_runtime_error(e, native_path, encoding, delimiter) from None
-    except Exception as e:
-        raise CsvReadError(str(e)) from None
-    finally:
-        if should_cleanup and os.path.exists(native_path):
-            try:
-                os.unlink(native_path)
-            except OSError:
-                pass
-
-
-def _reject_non_finite(constant: str) -> None:
-    """Reject non-finite JSON constants (NaN, Infinity, -Infinity)."""
-    raise ValueError(f"Non-finite JSON constant not allowed: {constant!r}")
-
-
-def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    seen = set()
-    result = {}
-    for key, value in pairs:
-        if key in seen:
-            raise ValueError(f"duplicate key {key!r}")
-        seen.add(key)
-        result[key] = value
-    return result
-
-
-def _validate_jsonl_encoding(encoding: str) -> None:
-    if not isinstance(encoding, str):
-        raise TypeError(f"encoding must be a string, got {type(encoding).__name__!r}")
-    try:
-        codecs.lookup(encoding)
-    except LookupError:
-        raise ValueError(f"Unknown encoding: {encoding!r}")
-
-
-def _validate_jsonl_nrows(nrows: int | None) -> int | None:
-    if nrows is not None:
-        if isinstance(nrows, bool) or not isinstance(nrows, int):
-            raise TypeError("nrows must be an integer")
-        if nrows < 0:
-            raise ValueError("nrows must be non-negative")
-    return nrows
-
-
-def _validate_jsonl_path(path: str) -> None:
-    path_lower = path.lower()
-    if not (path_lower.endswith(".jsonl") or path_lower.endswith(".ndjson")):
-        raise ValueError(
-            f"Unsupported file format: {path}. "
-            "read_jsonl only supports .jsonl and .ndjson files."
-        )
-
+    except FileNotFoundError:
+        pass
 
     config = _CsvConfig()
     config.delimiter = delimiter
     config.encoding = encoding
-
-    if null_values is not None:
-        config.null_values = null_values
-
+    config.trim_headers = trim_headers
     reader = _CsvReader(config)
     try:
         with _comment_filtered_csv_path(path, encoding, comment) as native_path:

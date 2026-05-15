@@ -82,244 +82,6 @@ class ArFrame:
         self._frame = cpp_frame
         self._attrs: dict = attrs if attrs is not None else {}
 
-    @classmethod
-    def from_dict(cls, data: dict) -> ArFrame:
-        from .convert import from_dict as _from_dict
-
-        return _from_dict(data)
-
-    @classmethod
-    def from_pandas(cls, df) -> ArFrame:
-        """Build an ArFrame from a pandas DataFrame."""
-        from .convert import from_pandas as _from_pandas
-
-        return _from_pandas(df)
-
-    @classmethod
-    def from_records(
-        cls,
-        records: list,
-        columns: list[str] | None = None,
-    ) -> ArFrame:
-        """Build an ArFrame from a list of records.
-
-        Parameters
-        ----------
-        records : list
-            A non-empty list of dicts, lists, or tuples.
-        columns : list[str] or None
-            Column names. Required when records are lists or tuples.
-            Optional for dicts — inferred from keys if not given.
-        Returns
-        -------
-        ArFrame
-
-        Raises
-        ------
-        TypeError
-            If records is not a list, elements are mixed types, or a
-            cell value is a list or dict.
-        ValueError
-            If records is empty, columns is missing for sequence records,
-            or a row's length doesn't match columns.
-        """
-        import pandas as pd
-
-        from .convert import from_pandas
-
-        if not isinstance(records, list):
-            raise TypeError(f"records must be a list, got {type(records).__name__!r}")
-
-        if len(records) == 0:
-            raise ValueError("records must be non-empty")
-
-        if columns is not None:
-            if isinstance(columns, (str, bytes)):
-                raise TypeError(
-                    "columns must be a list or tuple of strings, not a string or bytes"
-                )
-
-            if not isinstance(columns, (list, tuple)):
-                raise TypeError("columns must be a list or tuple of strings")
-
-            non_strings = [col for col in columns if not isinstance(col, str)]
-
-            if non_strings:
-                raise TypeError("columns must contain only strings")
-
-        first = records[0]
-
-        if isinstance(first, dict):
-            for i, row in enumerate(records):
-                if not isinstance(row, dict):
-                    raise TypeError(
-                        f"all records must be dicts, but row {i} is {type(row).__name__!r}"
-                    )
-                for col, val in row.items():
-                    if isinstance(val, (list, dict)):
-                        raise TypeError(
-                            f"nested values are not supported; "
-                            f"column {col!r} at row {i} contains a {type(val).__name__!r}"
-                        )
-            if columns is not None and len(columns) == 0:
-                raise ValueError(
-                    "columns must not be empty when records are dicts; "
-                    "pass columns=None to infer column names from the record keys"
-                )
-            df = pd.DataFrame.from_records(records, columns=columns)
-
-        elif isinstance(first, (list, tuple)):
-            if columns is None:
-                raise ValueError(
-                    "columns must be provided when records are lists or tuples"
-                )
-            for i, row in enumerate(records):
-                if not isinstance(row, (list, tuple)):
-                    raise TypeError(
-                        f"all records must be the same type, but row {i} is {type(row).__name__!r}"
-                    )
-                if len(row) != len(columns):
-                    raise ValueError(
-                        f"row {i} has {len(row)} value(s) but {len(columns)} column(s) were provided"
-                    )
-                for j, val in enumerate(row):
-                    if isinstance(val, (list, dict)):
-                        raise TypeError(
-                            f"nested values are not supported; "
-                            f"column {columns[j]!r} at row {i} contains a {type(val).__name__!r}"
-                        )
-            df = pd.DataFrame.from_records(records, columns=columns)
-
-        else:
-            raise TypeError(
-                f"records must contain dicts, lists, or tuples, got {type(first).__name__!r}"
-            )
-
-        return from_pandas(df)
-
-    def astype(self, dtype):
-        """Cast ArFrame columns to a specified type.
-
-        Parameters
-        ----------
-        dtype : Any
-            The data type to cast to (e.g., str, int, float, or a dict of column names to types).
-
-        Returns
-        -------
-        ArFrame
-            A new ArFrame with the applied type changes.
-
-        Raises
-        ------
-        TypeError
-            If the input dtype is invalid or if conversion fails due to type mismatch.
-        ValueError
-            If invalid values are passed or column conversion fails.
-        """
-        import numpy as np
-        import pandas as pd
-
-        from .convert import from_pandas, to_pandas
-
-        def _validate_dtype_value(value):
-            if isinstance(value, (list, tuple, set, dict)):
-                raise TypeError(
-                    "dtype must be a string, Python type, "
-                    "NumPy/pandas dtype, or mapping "
-                    "of column names to dtypes"
-                )
-
-            if isinstance(value, np.ndarray) and value.size > 1:
-                raise TypeError(
-                    "dtype must be a string, Python type, "
-                    "NumPy/pandas dtype, or mapping "
-                    "of column names to dtypes"
-                )
-
-            if value is object or (isinstance(value, str) and value == "object"):
-                raise TypeError(
-                    "dtype must be a string, Python type, "
-                    "NumPy/pandas dtype, or mapping "
-                    "of column names to dtypes"
-                )
-
-            try:
-                resolved = pd.api.types.pandas_dtype(value)
-
-                if resolved == np.dtype("O"):
-                    raise TypeError(
-                        "dtype must be a string, Python type, "
-                        "NumPy/pandas dtype, or mapping "
-                        "of column names to dtypes"
-                    )
-
-            except (TypeError, ValueError):
-                raise TypeError(
-                    "dtype must be a string, Python type, "
-                    "NumPy/pandas dtype, or mapping "
-                    "of column names to dtypes"
-                )
-
-        if dtype is None:
-            raise TypeError("dtype cannot be None")
-
-        if isinstance(dtype, dict):
-            missing = [col for col in dtype if col not in self.columns]
-
-            if missing:
-                raise ValueError(f"Unknown column(s) in dtype mapping: {missing}")
-
-            for value in dtype.values():
-                _validate_dtype_value(value)
-
-        elif isinstance(dtype, (list, tuple, set)):
-            raise TypeError(
-                "dtype must be a string, Python type, "
-                "NumPy/pandas dtype, or mapping "
-                "of column names to dtypes"
-            )
-
-        else:
-            _validate_dtype_value(dtype)
-
-        try:
-            df = to_pandas(self)
-        except Exception as e:
-            raise RuntimeError(f"Failed to convert ArFrame to pandas for casting: {e}")
-
-        try:
-            df_casted = df.astype(dtype)
-        except TypeError as te:
-            raise TypeError(f"Invalid type conversion requested: {te}")
-        except ValueError as ve:
-            raise ValueError(f"Value conversion error during astype: {ve}")
-        except Exception as e:
-            raise ValueError(f"An error occurred during casting: {e}")
-
-        return from_pandas(df_casted)
-
-    @classmethod
-    def from_records(cls, records: list[dict[str, object]]) -> "ArFrame":
-        """Build an ArFrame from a list of row dictionaries."""
-        if not isinstance(records, list):
-            raise TypeError("records must be a list of dictionaries")
-
-        columns: dict[str, list[object]] = {}
-        for row_index, record in enumerate(records):
-            if not isinstance(record, dict):
-                raise TypeError("records must be a list of dictionaries")
-
-            for key in record:
-                name = str(key)
-                if name not in columns:
-                    columns[name] = [None] * row_index
-
-            for name, values in columns.items():
-                values.append(record.get(name))
-
-        return cls(_Frame.from_dict(columns))
-
     # --- Properties ---
 
     @property
@@ -378,42 +140,6 @@ class ArFrame:
         return self._frame.dtypes()
 
     @property
-    def schema_summary(self) -> list[ColumnSummary]:
-        """Column names, dtypes, and nullability in one place.
-
-        Inspects the C++ frame directly — no pandas conversion triggered.
-
-        Returns
-        -------
-        list[ColumnSummary]
-            One :class:`ColumnSummary` per column, in original column order.
-            Each entry has three attributes:
-
-            * ``name`` – column name (``str``)
-            * ``dtype`` – inferred dtype string, e.g. ``"int64"`` (``str``)
-            * ``nullable`` – ``True`` if the column contains at least one null
-              value, ``False`` otherwise (``bool``)
-
-        Examples
-        --------
-        >>> frame = ar.read_csv("data.csv")
-        >>> for col in frame.schema_summary:
-        ...     print(col.name, col.dtype, col.nullable)
-        id int64 False
-        email string True
-        score float64 True
-        """
-        col_dtypes = self.dtypes
-        result: list[ColumnSummary] = []
-        for i, name in enumerate(self.columns):
-            mask = self._frame.column_by_index(i).get_null_mask()
-            nullable = bool(mask.any())
-            result.append(
-                ColumnSummary(name=name, dtype=col_dtypes[name], nullable=nullable)
-            )
-        return result
-
-    @property
     def is_empty(self) -> bool:
         """Check if frame has zero rows.
 
@@ -443,15 +169,53 @@ class ArFrame:
         """
         return self._frame.memory_usage()
 
-    def has_column(self, name: str) -> bool:
-        """Return whether a column exists."""
-        return self._frame.has_column(name)
+    def select_columns(self, columns: list[str]) -> ArFrame:
+        """Return a new ArFrame with only the selected columns.
 
-    def get_column_dtype(self, name: str) -> str:
-        """Return dtype for a specific column name."""
-        if not self.has_column(name):
-            raise KeyError(f"Column not found: {name}")
-        return self.dtypes[name]
+        Parameters
+        ----------
+        columns : list[str]
+            List of column names to select.
+
+        Returns
+        -------
+        ArFrame
+            New ArFrame containing only the selected columns.
+
+        Raises
+        ------
+        TypeError
+            If columns is not a valid sequence of strings.
+        ValueError
+            If the selection is empty, contains duplicates,
+            or includes unknown columns.
+        """
+        if isinstance(columns, str):
+            raise TypeError("columns must be a sequence of column names, not a string.")
+
+        if not isinstance(columns, (list, tuple)):
+            raise TypeError("columns must be a list or tuple of column names.")
+
+        if not columns:
+            raise ValueError("Column selection cannot be empty.")
+
+        if any(not isinstance(col, str) for col in columns):
+            raise TypeError("All column names must be strings.")
+
+        if len(columns) != len(set(columns)):
+            raise ValueError("Duplicate column names are not allowed.")
+
+        missing = [col for col in columns if col not in self.columns]
+
+        if missing:
+            raise ValueError(f"Unknown columns: {missing}")
+
+        from .convert import from_pandas, to_pandas
+
+        df = to_pandas(self)
+        selected_df = df[columns]
+
+        return from_pandas(selected_df)
 
     # --- Dunder methods ---
 
@@ -465,150 +229,41 @@ class ArFrame:
         return f"ArFrame({rows} rows × {cols} cols)"
 
     def __str__(self) -> str:
-        """Return a detailed string summary of the ArFrame with data preview."""
-        rows, cols = self.shape
-        header = f"ArFrame: {rows} rows × {cols} columns"
-        truncated_names = self._truncate_column_names()
+        """Return a detailed string summary of the ArFrame."""
+        lines = [f"ArFrame: {self.shape[0]} rows × {self.shape[1]} columns"]
+        lines.append(f"Columns: {self.columns}")
+        lines.append(f"DTypes:  {self.dtypes}")
+        lines.append(f"Memory:  {self.memory_usage()} bytes")
+        return "\n".join(lines)
 
-        if rows == 0:
-            return f"{header}\nColumns: {truncated_names}\n(empty frame)"
-
-        if cols == 0:
-            dtypes_line = f"DTypes: {self.dtypes}"
-            memory_line = f"Memory: {self.memory_usage()} bytes"
-            return (
-                f"{header}\nColumns: {truncated_names}\n{dtypes_line}\n"
-                f"{memory_line}\n(no columns to display)"
-            )
-
-        actual_n = min(5, rows)
-        col_data = [
-            [self._frame.column_by_index(i).at(r) for r in range(actual_n)]
-            for i in range(cols)
-        ]
-
-        col_widths = [
-            max(
-                len(truncated_names[i]),
-                max((len(str(col_data[i][r])) for r in range(actual_n)), default=0),
-            )
-            for i in range(cols)
-        ]
-
-        col_header = "  ".join(
-            truncated_names[i].ljust(col_widths[i]) for i in range(cols)
-        )
-        separator = "  ".join("-" * col_widths[i] for i in range(cols))
-        data_rows = [
-            "  ".join(str(col_data[i][r]).ljust(col_widths[i]) for i in range(cols))
-            for r in range(actual_n)
-        ]
-
-        suffix = f"\n... ({rows - actual_n} more rows)" if rows > actual_n else ""
-        columns_line = f"Columns: {truncated_names}"
-        dtypes_line = f"DTypes: {self.dtypes}"
-        memory_line = f"Memory: {self.memory_usage()} bytes"
-
-        parts = [
-            header,
-            columns_line,
-            dtypes_line,
-            memory_line,
-            col_header,
-            separator,
-        ] + data_rows
-
-        return "\n".join(parts) + suffix
-
-    def __contains__(self, item: object) -> bool:
-        return isinstance(item, str) and item in self.columns
-
-    def __getitem__(self, key: str | list[str]) -> list | ArFrame:
-        """Return column data as a list, or a subset ArFrame for list keys.
-
+    def compare_schema(self, other: ArFrame, strict: bool = False) -> bool:
+        """Compare the schema (columns and data types) with another ArFrame.
         Parameters
         ----------
-        key : str or list[str]
-            A single column name returns the column values as a list.
-            A list of column names returns a new multi-column ArFrame.
+        other : ArFrame
+            The other frame to compare against.
+        strict : bool, default False
+            If True, enforces identical column sequence/order.
+            If False, verifies column existence regardless of sequence.
 
         Returns
-        -------
-        list
-            Column values when key is a str.
-        ArFrame
-            Subset frame when key is a list of str.
-
-        Raises
-        ------
-        TypeError
-            If key is not a string or list of strings.
-        KeyError
-            If a requested column does not exist.
-
-        Examples
-        --------
-        >>> frame["name"]
-        ['Alice', 'Bob', 'Charlie']
-        >>> frame[["name", "age"]]
-        ArFrame(3 rows × 2 cols)
+        bool
+            True if schemas match, False otherwise.
         """
-        if isinstance(key, str):
-            if key not in self.columns:
-                raise KeyError(
-                    f"Column {key!r} not found. Available columns: {self.columns}"
-                )
-            col_index = self.columns.index(key)
-            return [
-                self._frame.column_by_index(col_index).at(i) for i in range(len(self))
-            ]
-        elif isinstance(key, list):
-            non_strings = [k for k in key if not isinstance(k, str)]
-            if non_strings:
-                raise TypeError(
-                    f"column list must contain only strings, got {[type(k).__name__ for k in non_strings]}"
-                )
-            missing = [k for k in key if k not in self.columns]
-            if missing:
-                raise KeyError(
-                    f"Column(s) {missing} not found. Available columns: {self.columns}"
-                )
-            return self.select_columns(key)
-        raise TypeError(
-            f"column key must be a str or list of str, got {type(key).__name__!r}"
-        )
-
-    def __eq__(self, other: object) -> bool:
+        # 1. Invalid Input Check: Safely handle non-ArFrame inputs
         if not isinstance(other, ArFrame):
-            return NotImplemented
+            raise TypeError("The 'other' object must be an instance of ArFrame.")
 
-        if (
-            self.shape != other.shape
-            or self.columns != other.columns
-            or self.dtypes != other.dtypes
-        ):
+        # 2. Strict Mode: Exact matching of both column order and dtypes
+        if strict:
+            return (self.columns == other.columns) and (self.dtypes == other.dtypes)
+
+        # 3. Non-Strict Mode (Step A): Check if the column sets match completely
+        if set(self.columns) != set(other.columns):
             return False
 
-        for i in range(self._frame.num_cols()):
-            left = self._frame.column_by_index(i).to_python_list()
-            right = other._frame.column_by_index(i).to_python_list()
-
-            for lval, rval in zip(left, right):
-                if not self._values_equal(lval, rval):
-                    return False
-
-        return True
-
-    def __copy__(self) -> ArFrame:
-        return ArFrame(self._frame.clone(), attrs=self._attrs.copy())
-
-    def __deepcopy__(self, memo: dict) -> ArFrame:
-        if id(self) in memo:
-            return memo[id(self)]
-        copied = ArFrame(self._frame.clone(), attrs={})
-        memo[id(self)] = copied
-        copied._attrs = copy.deepcopy(self._attrs, memo)
-        return copied
+        # 4. Non-Strict Mode (Step B): Map columns to verify their values share identical data types
+        return all(self.dtypes[col] == other.dtypes[col] for col in self.columns)
 
     def preview(self, n: int = 5) -> str:
         """Return a lightweight string preview of the first ``n`` rows.
@@ -643,10 +298,6 @@ class ArFrame:
             raise ValueError(f"`n` must be a positive integer, got {n!r}")
 
         num_rows, num_cols = self.shape
-        if num_rows > 0 and num_cols == 0:
-            return (
-                f"ArFrame preview: {num_rows} rows x 0 columns (no columns to display)"
-            )
 
         if num_rows == 0:
             return "ArFrame preview: (empty frame)"
@@ -681,99 +332,3 @@ class ArFrame:
 
         label = f"ArFrame preview (showing {actual_n} of {num_rows} rows):"
         return "\n".join([label, header, separator] + rows)
-
-    def _repr_html_(self) -> str:
-        """Return a bounded HTML table for Jupyter/IPython display.
-
-        Jupyter calls this automatically when an ArFrame is the last
-        expression in a cell. Output is always bounded to 10 rows.
-
-        Returns
-        -------
-        str
-            HTML string with shape/dtype summary, up to 10 data rows,
-            HTML-escaped content, and a truncation notice when needed.
-        """
-        import html as _html
-
-        _REPR_HTML_MAX_ROWS = 10
-
-        num_rows, num_cols = self.shape
-        col_names = self.columns
-        dtypes = self.dtypes
-
-        # ── summary line ──────────────────────────────────────────────────
-        dtype_parts = ", ".join(
-            f"{_html.escape(c)}: {_html.escape(dtypes.get(c, '?'))}" for c in col_names
-        )
-        summary = (
-            '<p style="font-family:monospace;font-size:0.85em;'
-            'color:#555;margin:0 0 4px 0;">'
-            f"ArFrame [{num_rows} rows \u00d7 {num_cols} cols]"
-            + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{dtype_parts}" if dtype_parts else "")
-            + "</p>"
-        )
-
-        # ── empty-frame fast path ─────────────────────────────────────────
-        if num_rows == 0:
-            return summary + "<p><em>(empty)</em></p>"
-        if num_cols == 0:
-            return summary + "<p><em>(no columns to display)</em></p>"
-
-        # ── column header ─────────────────────────────────────────────────
-        th_style = (
-            "style='padding:4px 10px;text-align:left;"
-            "background:#f0f0f0;border:1px solid #ccc;"
-            "font-family:monospace;font-size:0.9em;'"
-        )
-        header_cells = "".join(
-            f"<th {th_style}>{_html.escape(c)}</th>" for c in col_names
-        )
-        header = f"<thead><tr>{header_cells}</tr></thead>"
-
-        # Read only the rows needed for display; do not convert the full frame.
-        preview_rows = min(num_rows, _REPR_HTML_MAX_ROWS)
-
-        try:
-            preview_values = [
-                [
-                    self._frame.column_by_index(col_idx).at(row_idx)
-                    for col_idx in range(num_cols)
-                ]
-                for row_idx in range(preview_rows)
-            ]
-        except Exception as exc:
-            return (
-                summary
-                + "<p><em>HTML preview unavailable: "
-                + _html.escape(str(exc))
-                + "</em></p>"
-            )
-
-        td_style = (
-            "style='padding:4px 10px;border:1px solid #ddd;"
-            "font-family:monospace;font-size:0.9em;white-space:nowrap;'"
-        )
-        rows_html = ""
-        for row in preview_values:
-            cells = "".join(
-                f"<td {td_style}>"
-                + _html.escape("" if value is None else str(value))
-                + "</td>"
-                for value in row
-            )
-            rows_html += f"<tr>{cells}</tr>"
-
-        tbody = f"<tbody>{rows_html}</tbody>"
-        table = f"<table style='border-collapse:collapse;'>{header}{tbody}</table>"
-
-        # ── truncation notice ─────────────────────────────────────────────
-        notice = ""
-        if num_rows > _REPR_HTML_MAX_ROWS:
-            notice = (
-                '<p style="font-size:0.82em;color:#888;margin:4px 0 0 0;">'
-                f"Showing {_REPR_HTML_MAX_ROWS} of {num_rows} rows"
-                "</p>"
-            )
-
-        return summary + table + notice

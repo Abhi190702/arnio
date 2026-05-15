@@ -1602,55 +1602,10 @@ def profile(
     >>> report = ar.profile(frame, sample_size=3)
     >>> report.summary()
     """
-    _validate_arframe(frame)
-
     if not isinstance(sample_size, int) or isinstance(sample_size, bool):
         raise TypeError("sample_size must be an integer")
     if sample_size < 0:
         raise ValueError("sample_size must be non-negative")
-    if not isinstance(approx_top_values, bool):
-        raise TypeError("approx_top_values must be a bool")
-    if not isinstance(approx_top_values_min_unique, int) or isinstance(
-        approx_top_values_min_unique, bool
-    ):
-        raise TypeError("approx_top_values_min_unique must be an integer")
-    if approx_top_values_min_unique < 0:
-        raise ValueError("approx_top_values_min_unique must be non-negative")
-    if not isinstance(approx_top_values_min_ratio, (int, float)) or isinstance(
-        approx_top_values_min_ratio, bool
-    ):
-        raise TypeError("approx_top_values_min_ratio must be a float")
-
-    if not math.isfinite(approx_top_values_min_ratio):
-        raise ValueError(
-            "approx_top_values_min_ratio must be a finite number between 0 and 1"
-        )
-
-    if approx_top_values_min_ratio < 0 or approx_top_values_min_ratio > 1:
-        raise ValueError("approx_top_values_min_ratio must be between 0 and 1")
-
-    if not isinstance(approx_top_values_sample_size, int) or isinstance(
-        approx_top_values_sample_size, bool
-    ):
-        raise TypeError("approx_top_values_sample_size must be an integer")
-
-    if approx_top_values_sample_size <= 0:
-        raise ValueError("approx_top_values_sample_size must be positive")
-
-    normalized_exclude_columns: list[str] = []
-
-    if exclude_columns is not None:
-        normalized_exclude_columns = _validate_column_sequence(
-            exclude_columns,
-            argument_name="exclude_columns",
-        )
-        validate_columns_exist(
-            frame,
-            normalized_exclude_columns,
-            operation="profile",
-        )
-
-    has_exclusions = len(normalized_exclude_columns) > 0
 
     df = to_pandas(frame)
 

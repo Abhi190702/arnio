@@ -814,7 +814,39 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
     std::vector<BadRow> bad_rows;
     std::string line;
     std::vector<std::string> header;
-    std::vector<DType> col_types;
+    std::vector<std::vector<std::string>> raw_data;
+
+    // Read header
+    if (config_.has_header && read_record(file, line)) {
+        strip_utf8_bom(line);
+        header = parse_line(line);
+        for (auto& h : header) {
+            if (config_.trim_headers) trim_in_place(h);
+        }
+        validate_header(header);
+    }
+
+    // Read all rows
+    size_t row_count = 0;
+    while (read_record(file, line)) {
+        if (config_.nrows.has_value() && row_count >= config_.nrows.value()) break;
+        if (line.empty()) continue;
+        raw_data.push_back(parse_line(line));
+        ++row_count;
+    }
+    file.close();
+
+    // If no header, generate column names
+    if (!config_.has_header && !raw_data.empty()) {
+        for (size_t i = 0; i < raw_data[0].size(); ++i) {
+            header.push_back("col_" + std::to_string(i));
+        }
+        validate_header(header);
+    }
+
+    size_t num_cols = header.size();
+
+    // Determine which columns to keep
     std::vector<size_t> col_indices;
     std::vector<bool> explicit_dtype_columns;
     std::optional<size_t> expected_cols;
@@ -1075,27 +1107,9 @@ CsvReader::scan_schema(const std::string& path, const std::string& on_bad_lines)
 
     if (record_reader.read(line)) {
         strip_utf8_bom(line);
-
-        if (config.has_header) {
-            header = parser_.parse_line(line);
-
-            for (auto& h : header) {
-                h = handle_utf8_errors(h, config.encoding_errors);
-            }
-
-            for (auto& h : header) {
-                if (config.trim_headers) trim_in_place(h);
-            }
-
-            validate_header(header);
-        } else {
-            first_row = parser_.parse_line(line);
-
-            header.reserve(first_row.size());
-
-            for (size_t i = 0; i < first_row.size(); ++i) {
-                header.push_back("col_" + std::to_string(i));
-            }
+        header = parse_line(line);
+        for (auto& h : header) {
+            if (config_.trim_headers) trim_in_place(h);
         }
     }
 
