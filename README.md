@@ -1341,12 +1341,13 @@ null values were observed during profiling.
 
 ## 🗺️ Roadmap
 
-| Phase | Focus | Status |
-|:---|:---|:---:|
-| Stable foundations | Cross-platform wheels · CI/CD · PyPI publishing · Google Colab support · release hardening | ✅ Shipped |
-| Current focus | Reliability · contributor workflow · data-stack integrations · public API stability · benchmark baselines | 🔨 Active |
-| Next focus | Broader streaming workflows · richer file-format coverage · reproducible performance comparisons | 📋 Planned |
-| Later focus | Parallel column processing · SIMD string operations · lower-copy native cleaning paths | 💭 Exploring |
+| Version | Focus | Status |
+|:---:|:---|:---:|
+| **v1.0.0** | Stable release · cross-platform wheels · CI/CD · PyPI publishing · Google Colab support | ✅ Shipped |
+| **v1.1.0** | Production readiness · release hardening · docs/tooling | ✅ Shipped |
+| **v1.2.0** | C++ pipeline optimization · speed parity with pandas · hash-based deduplication | 🔨 Active |
+| **v1.3.0** | Chunked / streaming processing · Parquet & JSON readers | 📋 Planned |
+| **v1.4.0** | Parallel column processing · SIMD string operations | 💭 Exploring |
 
 Before expanding the backlog again, maintainers should complete the
 **[Core Stability Sprint](CORE_STABILITY_SPRINT.md)**: install reliability,
