@@ -270,40 +270,12 @@ PYBIND11_MODULE(_arnio_cpp, m) {
 
     m.def("rename_columns", &rename_columns, py::arg("frame"), py::arg("mapping"));
 
-    m.def(
-        "cast_types",
-        [](const Frame& frame, const std::unordered_map<std::string, std::string>& mapping,
-           const std::string& errors) {
-            CastErrors mode;
-            if (errors == "raise") {
-                mode = CastErrors::kRaise;
-            } else if (errors == "coerce") {
-                mode = CastErrors::kCoerce;
-            } else if (errors == "report") {
-                mode = CastErrors::kReport;
-            } else {
-                throw std::invalid_argument(
-                    "errors must be 'raise', 'coerce', or 'report', got: '" + errors + "'");
-            }
-            CastResult result;
-            {
-                py::gil_scoped_release release;
-                result = cast_types(frame, mapping, mode);
-            }
-            // Build a list of plain dicts so the Python layer can wrap them
-            // into whatever public type it chooses (CastReport, dataclass, etc.)
-            py::list failures_list;
-            for (const auto& f : result.failures) {
-                py::dict d;
-                d["column"] = f.column;
-                d["row"] = f.row;
-                d["value"] = f.value;
-                d["target_dtype"] = f.target_dtype;
-                failures_list.append(d);
-            }
-            return py::make_tuple(std::move(result.frame), failures_list);
-        },
-        py::arg("frame"), py::arg("mapping"), py::arg("errors") = std::string("raise"));
+    m.def("cast_types", &cast_types, py::arg("frame"), py::arg("mapping"));
+
+    m.def("make_column_names_unique", &make_column_names_unique, py::arg("frame"));
+}
+    m.def("cast_types", &cast_types, py::arg("frame"), py::arg("mapping"),
+          py::arg("coerce_invalid") = false);
 
     m.def(
         "clip_numeric",
@@ -332,37 +304,4 @@ PYBIND11_MODULE(_arnio_cpp, m) {
         },
         py::arg("frame"), py::arg("numerator"), py::arg("denominator"), py::arg("output_column"),
         py::arg("fill_value") = 0.0);
-
-    // ── encode_categorical bindings ──────────────────────────────────────────────
-    // Add this #include at the top of bind_arnio.cpp with the other headers:
-    //   #include "arnio/encode_categorical.h"
-    //
-    // Then paste the two m.def blocks below just before the closing `}` of
-    // PYBIND11_MODULE(_arnio_cpp, m) { ... }
-
-    m.def(
-        "encode_one_hot_native",
-        [](const Frame& frame, const std::vector<std::string>& column_names) {
-            Frame result;
-            {
-                py::gil_scoped_release release;
-                result = encode_one_hot_native(frame, column_names);
-            }
-            return result;
-        },
-        py::arg("frame"), py::arg("column_names"));
-
-    m.def(
-        "encode_ordinal_native",
-        [](const Frame& frame, const std::vector<std::string>& column_names,
-           const std::unordered_map<std::string, std::unordered_map<std::string, int64_t>>&
-               ordinal_mappings) {
-            Frame result;
-            {
-                py::gil_scoped_release release;
-                result = encode_ordinal_native(frame, column_names, ordinal_mappings);
-            }
-            return result;
-        },
-        py::arg("frame"), py::arg("column_names"), py::arg("ordinal_mappings"));
 }

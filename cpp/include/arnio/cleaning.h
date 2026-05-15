@@ -66,14 +66,14 @@ Frame normalize_case(const Frame& frame,
 Frame rename_columns(const Frame& frame,
                      const std::unordered_map<std::string, std::string>& mapping);
 
-// Cast column types.
-// errors controls what happens when a value cannot be parsed:
-//   kRaise  – throw std::invalid_argument (column, row, value, dtype) [default]
-//   kCoerce – push null, continue (legacy "coerce_invalid" behaviour)
-//   kReport – push null AND append a CastFailure entry to CastResult::failures
-CastResult cast_types(const Frame& frame,
-                      const std::unordered_map<std::string, std::string>& mapping,
-                      CastErrors errors = CastErrors::kRaise);
+// Cast column types
+Frame cast_types(const Frame& frame, const std::unordered_map<std::string, std::string>& mapping);
+
+// Make column names unique by appending suffixes
+Frame make_column_names_unique(const Frame& frame);
+
+Frame cast_types(const Frame& frame, const std::unordered_map<std::string, std::string>& mapping,
+                 bool coerce_invalid = false);
 
 // Clip numeric columns to lower and/or upper bounds.
 // Only INT64 and FLOAT64 columns are affected; all other columns are cloned

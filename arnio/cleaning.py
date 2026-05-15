@@ -20,6 +20,7 @@ from ._core import (
     _drop_nulls,
     _DType,
     _fill_nulls,
+    _make_column_names_unique,
     _Frame,
     _normalize_case,
     _remove_control_characters,
@@ -2006,52 +2007,31 @@ def filter_rows(
     return from_pandas(filtered) if is_arframe else filtered
 
 
-def remove_special_chars(frame: ArFrame, *, subset: list[str] | None = None) -> ArFrame:
-    """
-    Remove special characters from string columns.
-    Keeps only alphanumeric characters and whitespace.
+def make_column_names_unique(
+    frame: ArFrame,
+) -> ArFrame:
+    """Make duplicate column names unique by adding suffixes.
+
+    Duplicate names are made unique by appending "_1", "_2", etc.
+    The first occurrence is kept the same.
 
     Parameters
     ----------
     frame : ArFrame
         Input data frame.
-    subset : list of str, optional
-        Column names to apply cleaning on.
-        If None, applies to all string/object columns automatically.
-        Non-string columns (e.g. int64, float64) passed via ``subset``
-        are silently skipped — only string and object columns are modified.
-        Pass an unknown column name to raise a ``ValueError``.
 
     Returns
     -------
     ArFrame
-        New frame with special characters removed from string columns.
+        New frame with unique column names.
 
     Examples
     --------
     >>> frame = ar.read_csv("data.csv")
-    >>> clean = ar.remove_special_chars(frame)
-    >>> clean = ar.remove_special_chars(frame, subset=["name", "city"])
+    >>> unique = ar.make_column_names_unique(frame)
     """
-    df = to_pandas(frame)
-
-    target_cols = (
-        subset
-        if subset is not None
-        else df.select_dtypes(include=["object", "string"]).columns.tolist()
-    )
-
-    missing = [c for c in target_cols if c not in df.columns]
-    if missing:
-        raise ValueError(f"remove_special_chars: unknown columns in subset: {missing}")
-
-    df = df.copy()
-
-    for col in target_cols:
-        if df[col].dtype == object or str(df[col].dtype) == "string":
-            df[col] = df[col].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True)
-
-    return from_pandas(df)
+    result = _make_column_names_unique(frame._frame)
+    return ArFrame(result)
 
 
 def round_numeric_columns(
@@ -2210,6 +2190,10 @@ def safe_divide_columns(
     ----------
     frame : ArFrame
         Input data frame.
+    Returns
+    -------
+    ArFrame
+        New frame with unique column names.
     numerator : str
         Column name to use as the numerator.
     denominator : str
@@ -2224,6 +2208,7 @@ def safe_divide_columns(
     Returns
     -------
     ArFrame
+
 
     Examples
     --------
