@@ -8,30 +8,18 @@
 
 namespace arnio {
 
-Frame::Frame(size_t row_count) : row_count_(row_count), row_count_known_(true) {}
-
-Frame::Frame(std::vector<Column> columns) : columns_(std::move(columns)) {
-    if (!columns_.empty()) {
-        row_count_ = columns_[0].size();
-        for (const auto& col : columns_) {
-            validate_column_size(col);
-        }
-    }
-    row_count_known_ = true;
+Frame::Frame(std::vector<Column> columns, size_t row_count)
+    : columns_(std::move(columns)),
+      row_count_(columns_.empty() ? row_count : columns_[0].size()) {
     rebuild_index();
-}
-
-Frame::Frame(size_t row_count, std::vector<Column> columns)
-    : columns_(std::move(columns)), row_count_(row_count), row_count_known_(true) {
-    for (const auto& col : columns_) {
-        validate_column_size(col);
     }
-    rebuild_index();
-}
 
 std::pair<size_t, size_t> Frame::shape() const { return {num_rows(), num_cols()}; }
 
-size_t Frame::num_rows() const { return row_count_; }
+size_t Frame::num_rows() const {
+    if (columns_.empty()) return row_count_;
+    return columns_[0].size();
+}
 
 size_t Frame::num_cols() const { return columns_.size(); }
 
@@ -107,6 +95,10 @@ void Frame::add_column(Column col) {
     }
     name_index_[col.name()] = columns_.size();
     columns_.push_back(std::move(col));
+
+    if (columns_.size() == 1) {
+        row_count_ = columns_[0].size();
+    }
 }
 
 const std::vector<Column>& Frame::columns() const { return columns_; }
