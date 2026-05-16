@@ -3438,6 +3438,252 @@ class TestCleanAPI:
         assert len(result) < len(frame)
 
 
+class TestWinsorizeOutliers:
+    def test_winsorize_actual_values_capped(self):
+        """Verify values are actually capped, not just type-checked."""
+        import pandas as pd
+
+        df = pd.DataFrame({"price": [10.0, 20.0, 30.0, 40.0, 1000.0]})
+        frame = ar.from_pandas(df)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95)
+        result_df = ar.to_pandas(clean)
+        assert result_df["price"].max() < 1000.0
+
+    def test_winsorize_identical_values(self):
+        """Frame where all values are identical should not crash."""
+        import pandas as pd
+
+        df = pd.DataFrame({"score": [5.0, 5.0, 5.0, 5.0]})
+        frame = ar.from_pandas(df)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95)
+        assert isinstance(clean, ar.ArFrame)
+
+    def test_winsorize_single_row(self):
+        """Single row frame should not crash."""
+        import pandas as pd
+
+        df = pd.DataFrame({"score": [42.0]})
+        frame = ar.from_pandas(df)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95)
+        assert isinstance(clean, ar.ArFrame)
+
+    def test_winsorize_unknown_subset_column_raises(self):
+        """Unknown column in subset should raise ValueError."""
+        import pandas as pd
+
+        df = pd.DataFrame({"age": [25, 30, 35]})
+        frame = ar.from_pandas(df)
+        with pytest.raises(ValueError, match="Unknown columns in subset"):
+            ar.winsorize_outliers(frame, subset=["nonexistent"])
+
+    def test_winsorize_caps_upper_outlier(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95)
+        assert isinstance(clean, ar.ArFrame)
+
+    def test_winsorize_returns_same_row_count(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95)
+        assert len(clean) == len(frame)
+
+    def test_winsorize_subset_only(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95, subset=["age"])
+        assert isinstance(clean, ar.ArFrame)
+
+    def test_winsorize_skips_string_columns(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        clean = ar.winsorize_outliers(frame, lower=0.05, upper=0.95)
+        assert isinstance(clean, ar.ArFrame)
+
+    def test_winsorize_in_pipeline(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        clean = ar.pipeline(
+            frame,
+            [
+                ("strip_whitespace",),
+                ("winsorize_outliers", {"lower": 0.05, "upper": 0.95}),
+            ],
+        )
+        assert isinstance(clean, ar.ArFrame)
+
+    def test_winsorize_invalid_lower_greater_than_upper(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        with pytest.raises(ValueError):
+            ar.winsorize_outliers(frame, lower=0.9, upper=0.1)
+
+    def test_winsorize_invalid_lower_equals_upper(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        with pytest.raises(ValueError):
+            ar.winsorize_outliers(frame, lower=0.5, upper=0.5)
+
+    def test_winsorize_invalid_out_of_range(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+        with pytest.raises(ValueError):
+            ar.winsorize_outliers(frame, lower=-0.1, upper=1.5)
+class TestFilterRows:
+    def test_filter_rows_missing_column_raises_clear_error(self):
+        df = pd.DataFrame({"age": [20, 30]})
+
+        with pytest.raises(ValueError, match="Unknown column: missing"):
+            ar.filter_rows(df, "missing", ">", 10)
+
+    def test_filter_rows_missing_column_raises_clear_error_for_arframe(self):
+        frame = ar.from_pandas(pd.DataFrame({"age": [20, 30]}))
+
+        with pytest.raises(ValueError, match="Unknown column: missing"):
+            ar.filter_rows(frame, "missing", ">", 10)
+
+    def test_filter_rows_valid_column_still_works(self):
+        df = pd.DataFrame({"age": [20, 30]})
+
+        result = ar.filter_rows(df, "age", ">", 20)
+
+        assert len(result) == 1
+        assert result.iloc[0]["age"] == 30
+
+    def test_filter_rows_with_missing_values_does_not_crash(self):
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame({"age": [20, 30, np.nan, pd.NA, None]})
+
+        result = ar.filter_rows(df, "age", ">", 25)
+
+        assert len(result) == 1
+        assert result.iloc[0]["age"] == 30
+
+    def test_filter_rows_arframe_resets_row_positions(self):
+        frame = ar.from_pandas(pd.DataFrame({"age": [10, 30, 40]}))
+
+        result = ar.filter_rows(frame, "age", ">", 20)
+        df = ar.to_pandas(result)
+
+        assert list(df.index) == [0, 1]
+        assert list(df["age"]) == [30, 40]
+
+    def test_filter_rows_invalid_comparison_raises_column_aware_type_error(self):
+        df = pd.DataFrame({"name": ["Alice", "Bob"]})
+
+        with pytest.raises(
+            TypeError, match="filter_rows: cannot compare column 'name'"
+        ):
+            ar.filter_rows(df, "name", ">", 1)
+
+
+class TestMappingValidation:
+    def test_rename_columns_rejects_invalid_mapping_value_type(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(TypeError, match="mapping values must be non-empty strings"):
+            ar.rename_columns(frame, {"name": 123})
+
+    def test_replace_values_rejects_missing_column(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(KeyError, match="Column 'missing' not found"):
+            ar.replace_values(frame, {"Alice": "Alicia"}, column="missing")
+
+    def test_replace_values_rejects_non_mapping_input(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(TypeError, match="mapping must be a dict-like mapping"):
+            ar.replace_values(frame, [("Alice", "Alicia")])
+
+    def test_replace_values_rejects_empty_mapping(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(ValueError, match="mapping must not be empty"):
+            ar.replace_values(frame, {})
+
+    def test_rename_columns_rejects_non_mapping_input(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(TypeError, match="mapping must be a mapping"):
+            ar.rename_columns(frame, [("name", "full_name")])
+
+    def test_cast_types_rejects_non_mapping_input(self, sample_csv):
+        frame = ar.read_csv(sample_csv)
+
+        with pytest.raises(TypeError, match="mapping must be a mapping"):
+            ar.cast_types(frame, [("age", "string")])
+
+
+class TestReplaceValues:
+    def test_replace_values_null_key_replaces_existing_nulls_in_target_column(self):
+        import numpy as np
+
+        frame = ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "name": ["Alice", None, pd.NA],
+                    "city": [None, "Paris", None],
+                }
+            )
+        )
+
+        result = ar.replace_values(frame, {np.nan: "Unknown"}, column="name")
+        df = ar.to_pandas(result)
+
+        assert list(df["name"]) == ["Alice", "Unknown", "Unknown"]
+        assert pd.isna(df.loc[0, "city"])
+        assert df.loc[1, "city"] == "Paris"
+        assert pd.isna(df.loc[2, "city"])
+
+    def test_replace_values_null_replacement_creates_real_nulls(self):
+        frame = ar.from_pandas(
+            pd.DataFrame({"status": ["active", "inactive", "active"]})
+        )
+
+        result = ar.replace_values(frame, {"inactive": None})
+        df = ar.to_pandas(result)
+
+        assert list(df["status"].iloc[[0, 2]]) == ["active", "active"]
+        assert pd.isna(df.loc[1, "status"])
+
+    def test_replace_values_supports_pd_na_key_and_value(self):
+        frame = ar.from_pandas(
+            pd.DataFrame({"score": [1, None, 3], "flag": ["ok", "missing", "ok"]})
+        )
+
+        result = ar.replace_values(frame, {pd.NA: 0, "missing": pd.NA})
+        df = ar.to_pandas(result)
+
+        assert list(df["score"]) == [1, 0, 3]
+        assert df.loc[0, "flag"] == "ok"
+        assert pd.isna(df.loc[1, "flag"])
+        assert df.loc[2, "flag"] == "ok"
+
+    def test_replace_values_tuple_mapping_key_does_not_crash(self):
+        frame = ar.from_pandas(pd.DataFrame({"col": ["A", "B", "C"]}))
+
+        result = ar.replace_values(
+            frame,
+            {("A", "B"): "X"},
+            column="col",
+        )
+
+        df = ar.to_pandas(result)
+
+        assert list(df["col"]) == ["A", "B", "C"]
+
+    def test_replace_values_mixed_tuple_and_null_keys(self):
+        frame = ar.from_pandas(pd.DataFrame({"col": ["A", np.nan, "C"]}))
+
+        result = ar.replace_values(
+            frame,
+            {
+                ("A", "B"): "X",
+                np.nan: "missing",
+            },
+            column="col",
+        )
+
+        df = ar.to_pandas(result)
+
+        assert list(df["col"]) == ["A", "missing", "C"]
+
+
 class TestRoundNumericColumns:
     def test_round_all_numeric(self):
         import pandas as pd

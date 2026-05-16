@@ -532,6 +532,7 @@ Most operations below run natively in C++. Currently, `filter_rows`, `replace_va
 | `cast_types` | Cast column types | `ar.cast_types(frame, {"age": "int64"})` |
 | `round_numeric_columns` | Round numeric columns (non-numeric columns in subset ignored safely) | `ar.round_numeric_columns(frame, decimals=2)` |
 | `clean` | Convenience shorthand | `ar.clean(frame, drop_nulls=True)` |
+| `winsorize_outliers` | Cap extreme values at percentile bounds | `ar.winsorize_outliers(frame, lower=0.05, upper=0.95)` |
 | `safe_divide_columns` | Divide one column by another, handling zero/null denominators | `ar.safe_divide_columns(frame, numerator="revenue", denominator="cost", output_column="ratio")` |
 
 Or compose them all into a **pipeline**:
