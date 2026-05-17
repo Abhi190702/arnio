@@ -55,6 +55,68 @@ BENCHMARKS = (
     ),
 )
 
+
+_PSUTIL_PROCESS = None
+_PSUTIL_PROBED = False
+
+
+def _get_psutil_process():
+    global _PSUTIL_PROCESS
+    global _PSUTIL_PROBED
+
+    if _PSUTIL_PROBED:
+        return _PSUTIL_PROCESS
+
+    _PSUTIL_PROBED = True
+
+    try:
+        import psutil
+
+        _PSUTIL_PROCESS = psutil.Process()
+
+        return _PSUTIL_PROCESS
+
+    except Exception:
+        return None
+
+
+def detect_rss_source():
+    if _get_psutil_process() is not None:
+        return "psutil"
+
+    try:
+        import resource
+
+        _ = resource.RUSAGE_SELF
+
+        return "resource"
+
+    except Exception:
+        return "unavailable"
+
+
+def get_process_rss_mb():
+    process = _get_psutil_process()
+
+    if process is not None:
+        return process.memory_info().rss / 1024 / 1024
+
+    try:
+        import resource
+
+        rss_kb = resource.getrusage(
+            resource.RUSAGE_SELF
+        ).ru_maxrss
+
+        if sys.platform == "darwin":
+            return rss_kb / 1024 / 1024
+
+        return rss_kb / 1024
+
+    except Exception:
+        return None
+
+
 def ensure_dataset_exists(path):
     if not Path(path).exists():
         raise FileNotFoundError(
@@ -69,7 +131,19 @@ def benchmark_pandas(path):
 
     start_time = time.perf_counter()
 
+    rss_samples = []
+
+    start_rss = get_process_rss_mb()
+
+    if start_rss is not None:
+        rss_samples.append(start_rss)
+
     df = pd.read_csv(path)
+
+    rss = get_process_rss_mb()
+
+    if rss is not None:
+        rss_samples.append(rss)
 
     df.columns = df.columns.str.strip()
 
@@ -81,14 +155,19 @@ def benchmark_pandas(path):
     ).columns
 
     for column in object_columns:
-        cleaned = (
+        normalized = (
             df[column]
             .astype(str)
             .str.strip()
             .str.lower()
         )
 
-        df[column] = cleaned
+        df[column] = normalized
+
+    rss = get_process_rss_mb()
+
+    if rss is not None:
+        rss_samples.append(rss)
 
     elapsed = time.perf_counter() - start_time
 
@@ -96,9 +175,17 @@ def benchmark_pandas(path):
 
     tracemalloc.stop()
 
-    peak_mb = peak / 1024 / 1024
+    peak_rss = (
+        max(rss_samples)
+        if rss_samples
+        else None
+    )
 
-    return elapsed, peak_mb
+    return (
+        elapsed,
+        peak / 1024 / 1024,
+        peak_rss,
+    )
 
 
 def benchmark_arnio(path):
@@ -109,7 +196,19 @@ def benchmark_arnio(path):
 
     start_time = time.perf_counter()
 
+    rss_samples = []
+
+    start_rss = get_process_rss_mb()
+
+    if start_rss is not None:
+        rss_samples.append(start_rss)
+
     frame = ar.read_csv(path)
+
+    rss = get_process_rss_mb()
+
+    if rss is not None:
+        rss_samples.append(rss)
 
     clean = ar.pipeline(
         frame,
@@ -124,7 +223,17 @@ def benchmark_arnio(path):
         ],
     )
 
+    rss = get_process_rss_mb()
+
+    if rss is not None:
+        rss_samples.append(rss)
+
     ar.to_pandas(clean)
+
+    rss = get_process_rss_mb()
+
+    if rss is not None:
+        rss_samples.append(rss)
 
     elapsed = time.perf_counter() - start_time
 
@@ -132,45 +241,114 @@ def benchmark_arnio(path):
 
     tracemalloc.stop()
 
-    peak_mb = peak / 1024 / 1024
+    peak_rss = (
+        max(rss_samples)
+        if rss_samples
+        else None
+    )
 
-    return elapsed, peak_mb
+    return (
+        elapsed,
+        peak / 1024 / 1024,
+        peak_rss,
+    )
 
 
 def avg(values):
     return sum(values) / len(values)
 
 
+def run_subprocess(engine, path):
+    cmd = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--engine",
+        engine,
+        "--case",
+        path,
+        "--json",
+    ]
+
+    completed = subprocess.run(
+        cmd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    output = completed.stdout.strip()
+
+    if not output:
+        raise RuntimeError(
+            f"No output from benchmark subprocess ({engine})."
+        )
+
+    return json.loads(output)
+
+
 def run_case(case):
     print("=" * 72)
     print(case.name)
 
-    header = (
+    print(
         f"{'Metric':<20} "
         f"{'pandas':>12} "
         f"{'arnio':>12}"
     )
-
-    print(header)
 
     print("-" * 46)
 
     pd_times = []
     ar_times = []
 
-    pd_rams = []
-    ar_rams = []
+    pd_trace_rams = []
+    ar_trace_rams = []
+
+    pd_rss_rams = []
+    ar_rss_rams = []
 
     for _ in range(RUNS):
-        pd_time, pd_ram = benchmark_pandas(case.path)
+        pd_result = run_subprocess(
+            "pandas",
+            case.path,
+        )
 
-        ar_time, ar_ram = benchmark_arnio(case.path)
+        ar_result = run_subprocess(
+            "arnio",
+            case.path,
+        )
+
+        (
+            pd_time,
+            pd_trace_ram,
+            pd_rss_ram,
+        ) = (
+            pd_result["elapsed"],
+            pd_result["peak_trace_mb"],
+            pd_result.get("peak_rss_mb"),
+        )
+
+        (
+            ar_time,
+            ar_trace_ram,
+            ar_rss_ram,
+        ) = (
+            ar_result["elapsed"],
+            ar_result["peak_trace_mb"],
+            ar_result.get("peak_rss_mb"),
+        )
 
         pd_times.append(pd_time)
         ar_times.append(ar_time)
 
-        pd_rams.append(pd_ram)
-        ar_rams.append(ar_ram)
+        pd_trace_rams.append(pd_trace_ram)
+        ar_trace_rams.append(ar_trace_ram)
+
+        if pd_rss_ram is not None:
+            pd_rss_rams.append(pd_rss_ram)
+
+        if ar_rss_ram is not None:
+            ar_rss_rams.append(ar_rss_ram)
 
     print(
         f"{'Exec Time (avg)':<20} "
@@ -178,28 +356,133 @@ def run_case(case):
         f"{avg(ar_times):>11.2f}s"
     )
 
+    if pd_rss_rams and ar_rss_rams:
+        pd_rss_avg = avg(pd_rss_rams)
+        ar_rss_avg = avg(ar_rss_rams)
+
+        print(
+            f"{'Peak RSS (process)':<20} "
+            f"{pd_rss_avg:>10.0f}MB "
+            f"{ar_rss_avg:>10.0f}MB"
+        )
+
+    else:
+        pd_rss_avg = None
+        ar_rss_avg = None
+
+        print(
+            f"{'Peak RSS (process)':<20} "
+            f"{'n/a':>12} "
+            f"{'n/a':>12}"
+        )
+
     print(
-        f"{'Peak RAM':<20} "
-        f"{avg(pd_rams):>10.0f}MB "
-        f"{avg(ar_rams):>10.0f}MB"
+        f"{'Peak Python (trace)':<20} "
+        f"{avg(pd_trace_rams):>10.0f}MB "
+        f"{avg(ar_trace_rams):>10.0f}MB"
     )
 
-    speedup = avg(pd_times) / avg(ar_times)
+    if pd_rss_avg and ar_rss_avg:
+        ram_reduction = (
+            1 - (ar_rss_avg / pd_rss_avg)
+        ) * 100
 
-    ram_reduction = (
-        1 - avg(ar_rams) / avg(pd_rams)
-    ) * 100
+        print(
+            f"\nSpeed: "
+            f"{avg(pd_times) / avg(ar_times):.1f}x "
+            f"| RAM: "
+            f"{ram_reduction:.0f}% reduction (RSS)"
+        )
 
-    print(
-        f"\nSpeed: {speedup:.1f}x "
-        f"| RAM: {ram_reduction:.0f}% reduction"
-    )
+    else:
+        print(
+            f"\nSpeed: "
+            f"{avg(pd_times) / avg(ar_times):.1f}x"
+        )
 
     print()
 
 
+def run_child(engine, case_path):
+    if engine == "pandas":
+        (
+            elapsed,
+            peak_trace_mb,
+            peak_rss_mb,
+        ) = benchmark_pandas(case_path)
+
+    elif engine == "arnio":
+        (
+            elapsed,
+            peak_trace_mb,
+            peak_rss_mb,
+        ) = benchmark_arnio(case_path)
+
+    else:
+        raise ValueError(
+            f"Unknown engine: {engine}"
+        )
+
+    payload = {
+        "elapsed": elapsed,
+        "peak_trace_mb": peak_trace_mb,
+        "peak_rss_mb": peak_rss_mb,
+    }
+
+    print(json.dumps(payload))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run Arnio vs pandas benchmarks"
+    )
+
+    parser.add_argument(
+        "--engine",
+        choices=["pandas", "arnio"],
+        help="Benchmark engine",
+    )
+
+    parser.add_argument(
+        "--case",
+        help="CSV path for a single benchmark run",
+    )
+
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON result",
+    )
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    print(ENVIRONMENT_NOTES)
+    args = parse_args()
+
+    if args.engine and args.case:
+        if not args.json:
+            raise SystemExit(
+                "Child mode requires --json output."
+            )
+
+        run_child(args.engine, args.case)
+
+        raise SystemExit(0)
+
+    rss_source = detect_rss_source()
+
+    if rss_source == "resource":
+        print(
+            "Note: Peak RSS uses resource.getrusage; "
+            "units are KB on Linux and bytes on macOS."
+        )
+
+    elif rss_source == "unavailable":
+        print(
+            "Note: Peak RSS unavailable "
+            "(install psutil for process RSS)."
+        )
 
     for benchmark_case in BENCHMARKS:
         run_case(benchmark_case)
