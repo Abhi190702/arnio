@@ -16,61 +16,48 @@ try:
 except Exception:
     __version__ = "unknown"
 
-# 1. Base fallback dictionary containing the absolute known public surface of arnio
-_LAZY_MAPPING: dict[str, str] = {
-    "ArFrame": ".frame",
-    "read_csv": ".io",
-    "scan_csv": ".io",
-    "combine_columns": ".cleaning",
-    "drop_nulls": ".cleaning",
-    "keep_rows_with_nulls": ".cleaning",
-    "fill_nulls": ".cleaning",
-    "validate_columns_exist": ".cleaning",
-    "filter_rows": ".cleaning",
-    "replace_values": ".cleaning",
-    "drop_duplicates": ".cleaning",
-    "constant_columns": ".cleaning",
-    "drop_constant_columns": ".cleaning",
-    "clip_numeric": ".cleaning",
-    "strip_whitespace": ".cleaning",
-    "normalize_case": ".cleaning",
-    "normalize_unicode": ".cleaning",
-    "rename_columns": ".cleaning",
-    "round_numeric_columns": ".cleaning",
-    "cast_types": ".cleaning",
-    "clean": ".cleaning",
-    "safe_divide_columns": ".cleaning",
-    "trim_column_names": ".cleaning",
-    "to_pandas": ".convert",
-    "from_pandas": ".convert",
-    "ArnioPandasAccessor": ".integrations",
-    "pipeline": ".pipeline",
-    "register_step": ".pipeline",
-    "profile": ".quality",
-    "suggest_cleaning": ".quality",
-    "auto_clean": ".quality",
-    "ColumnProfile": ".quality",
-    "DataQualityReport": ".quality",
-    "Schema": ".schema",
-    "Field": ".schema",
-    "ValidationIssue": ".schema",
-    "ValidationResult": ".schema",
-    "validate": ".schema",
-    "Int64": ".schema",
-    "Float64": ".schema",
-    "String": ".schema",
-    "CountryCode": ".schema",
-    "Bool": ".schema",
-    "Email": ".schema",
-    "URL": ".schema",
-    "DateTime": ".schema",
-    "UnknownStepError": ".exceptions",
-    "ArnioError": ".exceptions",
-    "CsvReadError": ".exceptions",
-    "TypeCastError": ".exceptions",
-}
-
-from_records = ArFrame.from_records
+from .cleaning import (
+    cast_types,
+    clean,
+    clip_numeric,
+    drop_constant_columns,
+    drop_duplicates,
+    drop_nulls,
+    fill_nulls,
+    filter_rows,
+    normalize_case,
+    rename_columns,
+    round_numeric_columns,
+    safe_divide_columns,
+    strip_whitespace,
+    validate_columns_exist,
+)
+from .convert import from_pandas, to_numpy, to_pandas
+from .exceptions import ArnioError, CsvReadError, TypeCastError, UnknownStepError
+from .frame import ArFrame
+from .integrations import ArnioPandasAccessor
+from .io import read_csv, scan_csv
+from .pipeline import pipeline, register_step
+from .quality import (
+    ColumnProfile,
+    DataQualityReport,
+    auto_clean,
+    profile,
+    suggest_cleaning,
+)
+from .schema import (
+    URL,
+    Bool,
+    Email,
+    Field,
+    Float64,
+    Int64,
+    Schema,
+    String,
+    ValidationIssue,
+    ValidationResult,
+    validate,
+)
 
 __all__ = [
     # Core class
@@ -114,7 +101,7 @@ __all__ = [
     "standardize_missing_tokens",
     # Conversion
     "to_pandas",
-    "to_arrow",
+    "to_numpy",
     "from_pandas",
     "from_records",
     # Integrations
