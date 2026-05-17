@@ -2291,3 +2291,125 @@ def safe_divide_columns(
     df[output_column] = result.fillna(fill_value)
 
     return from_pandas(df) if is_arframe else df
+
+
+def replace_values(frame, mapping, column=None):
+    """Replace values based on a mapping dict.
+
+    If column is None, applies to all columns.
+
+    Handles None/NaN in mappings:
+    - If mapping has a null-like key (None / NaN / pd.NA), this replaces existing nulls via fillna.
+    - If mapping maps to a null-like value, the replacement will result in real nulls (NaN/NA).
+
+    Parameters
+    ----------
+    frame : ArFrame
+        Input data frame.
+    mapping : dict
+        Mapping of values to replace.
+    column : str, optional
+        Specific column to apply replacements to. If None, applies to all columns.
+
+    Returns
+    -------
+    ArFrame
+        New frame with values replaced.
+
+    Examples
+    --------
+    >>> frame = ar.read_csv("data.csv")
+    >>> replaced = ar.replace_values(frame, {"old_value": "new_value"}, column="name")
+    """
+    import pandas as pd
+
+    from .convert import from_pandas, to_pandas
+
+    if not isinstance(mapping, dict):
+        raise TypeError(
+            "mapping must be a dict-like mapping of {old_value: new_value}, "
+            f"not {type(mapping).__name__}."
+        )
+    if not mapping:
+        raise ValueError("mapping must not be empty")
+
+    is_arframe = not isinstance(frame, pd.DataFrame)
+    # Avoid mutating the caller's DataFrame in the direct pandas API path.
+    df = to_pandas(frame) if is_arframe else frame.copy()
+
+    if column is not None:
+        if not isinstance(column, str) or not column.strip():
+            raise TypeError("column must be a non-empty string when provided")
+        if column not in df.columns:
+            available = ", ".join(map(str, df.columns)) or "<none>"
+            raise KeyError(
+                f"Column '{column}' not found. Available columns: {available}"
+            )
+
+    # Normalize mapping and separate null-key handling because NaN != NaN
+    null_key_present = False
+    null_replacement = None
+    normalized_mapping = {}
+
+    for k, v in mapping.items():
+        # detect null-like keys (None, NaN, pd.NA)
+        if k is None or pd.isna(k):
+            null_key_present = True
+            null_replacement = v
+        else:
+            normalized_mapping[k] = v
+
+    if column:
+        s = df[column]
+        if normalized_mapping:
+            s = s.replace(normalized_mapping)
+        if null_key_present:
+            # replace existing nulls (NaN/None/pd.NA) in the series
+            s = s.fillna(null_replacement)
+        df[column] = s
+    else:
+        if normalized_mapping:
+            df = df.replace(normalized_mapping)
+        if null_key_present:
+            # replace existing nulls anywhere in the dataframe
+            df = df.fillna(null_replacement)
+
+    return from_pandas(df) if is_arframe else df
+
+
+
+# This is the solution of Feature: Add remove_special_chars as an official pipeline step #345
+import re
+import pandas as pd
+
+def remove_special_chars(df, columns=None):
+    """
+    Remove special characters from string columns.
+
+    Parameters:
+        df (pd.DataFrame): Input dataframe
+        columns (list, optional): Columns to clean. If None, all string columns are used.
+
+    Returns:
+        pd.DataFrame: Cleaned dataframe (copy)
+    """
+
+    df_copy = df.copy()
+
+    # Auto-detect string columns if not provided
+    if columns is None:
+        columns = df_copy.select_dtypes(include=["object", "string"]).columns.tolist()
+
+    # Validate columns
+    for col in columns:
+        if col not in df_copy.columns:
+            raise ValueError(f"Column '{col}' does not exist in dataframe")
+
+    # Apply cleaning
+    for col in columns:
+        if pd.api.types.is_string_dtype(df_copy[col]):
+            df_copy[col] = df_copy[col].astype(str).apply(
+                lambda x: re.sub(r"[^a-zA-Z0-9\s]", "", x)
+            )
+
+    return df_copy

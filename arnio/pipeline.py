@@ -933,3 +933,5 @@ register_step("winsorize_outliers", cleaning.winsorize_outliers)
 
 register_step("drop_columns_matching", cleaning.drop_columns_matching)
 register_step("safe_divide_columns", cleaning.safe_divide_columns)
+register_step("replace_values", cleaning.replace_values)
+register_step("remove_special_chars", cleaning.remove_special_chars) # add this line for solve issue #345
