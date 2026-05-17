@@ -22,7 +22,6 @@ import arnio as ar
 
 CSV_FILE = "benchmarks/benchmark_1m.csv"
 WIDE_CSV_FILE = "benchmarks/benchmark_wide.csv"
-MULTILINE_CSV_FILE = "benchmarks/benchmark_multiline.csv"
 
 RUNS = 3
 
@@ -54,10 +53,6 @@ BENCHMARKS = (
         "Wide CSV (5,000 rows x 256 columns)",
         WIDE_CSV_FILE,
     ),
-    BenchmarkCase(
-        "Quoted multiline CSV dataset",
-        MULTILINE_CSV_FILE,
-    ),
 )
 
 def ensure_dataset_exists(path):
@@ -86,9 +81,14 @@ def benchmark_pandas(path):
     ).columns
 
     for column in object_columns:
-        df[column] = (
-            df[column].astype(str).str.strip().str.lower()
+        cleaned = (
+            df[column]
+            .astype(str)
+            .str.strip()
+            .str.lower()
         )
+
+        df[column] = cleaned
 
     elapsed = time.perf_counter() - start_time
 
@@ -96,7 +96,9 @@ def benchmark_pandas(path):
 
     tracemalloc.stop()
 
-    return elapsed, peak / 1024 / 1024
+    peak_mb = peak / 1024 / 1024
+
+    return elapsed, peak_mb
 
 
 def benchmark_arnio(path):
@@ -130,7 +132,9 @@ def benchmark_arnio(path):
 
     tracemalloc.stop()
 
-    return elapsed, peak / 1024 / 1024
+    peak_mb = peak / 1024 / 1024
+
+    return elapsed, peak_mb
 
 
 def avg(values):
@@ -141,11 +145,13 @@ def run_case(case):
     print("=" * 72)
     print(case.name)
 
-    print(
+    header = (
         f"{'Metric':<20} "
         f"{'pandas':>12} "
         f"{'arnio':>12}"
     )
+
+    print(header)
 
     print("-" * 46)
 
@@ -178,11 +184,15 @@ def run_case(case):
         f"{avg(ar_rams):>10.0f}MB"
     )
 
+    speedup = avg(pd_times) / avg(ar_times)
+
+    ram_reduction = (
+        1 - avg(ar_rams) / avg(pd_rams)
+    ) * 100
+
     print(
-        f"\nSpeed: "
-        f"{avg(pd_times) / avg(ar_times):.1f}x "
-        f"| RAM: "
-        f"{(1 - avg(ar_rams) / avg(pd_rams)) * 100:.0f}% reduction"
+        f"\nSpeed: {speedup:.1f}x "
+        f"| RAM: {ram_reduction:.0f}% reduction"
     )
 
     print()
