@@ -71,7 +71,8 @@ def benchmark_pandas(path):
     ensure_dataset_exists(path)
 
     tracemalloc.start()
-    start = time.perf_counter()
+
+    start_time = time.perf_counter()
 
     df = pd.read_csv(path)
 
@@ -86,13 +87,10 @@ def benchmark_pandas(path):
 
     for column in object_columns:
         df[column] = (
-            df[column]
-            .astype(str)
-            .str.strip()
-            .str.lower()
+            df[column].astype(str).str.strip().str.lower()
         )
 
-    elapsed = time.perf_counter() - t0
+    elapsed = time.perf_counter() - start_time
 
     _, peak = tracemalloc.get_traced_memory()
 
@@ -106,7 +104,8 @@ def benchmark_arnio(path):
     ensure_dataset_exists(path)
 
     tracemalloc.start()
-    start = time.perf_counter()
+
+    start_time = time.perf_counter()
 
     frame = ar.read_csv(path)
 
@@ -114,7 +113,10 @@ def benchmark_arnio(path):
         frame,
         [
             ("strip_whitespace",),
-            ("normalize_case", {"case_type": "lower"}),
+            (
+                "normalize_case",
+                {"case_type": "lower"},
+            ),
             ("drop_nulls",),
             ("drop_duplicates",),
         ],
@@ -122,7 +124,7 @@ def benchmark_arnio(path):
 
     ar.to_pandas(clean)
 
-    elapsed = time.perf_counter() - t0
+    elapsed = time.perf_counter() - start_time
 
     _, peak = tracemalloc.get_traced_memory()
 
@@ -140,7 +142,9 @@ def run_case(case):
     print(case.name)
 
     print(
-        f"{'Metric':<20} {'pandas':>12} {'arnio':>12}"
+        f"{'Metric':<20} "
+        f"{'pandas':>12} "
+        f"{'arnio':>12}"
     )
 
     print("-" * 46)
@@ -152,14 +156,15 @@ def run_case(case):
     ar_rams = []
 
     for _ in range(RUNS):
-        pt, pr = benchmark_pandas(case.path)
-        at, ar_r = benchmark_arnio(case.path)
+        pd_time, pd_ram = benchmark_pandas(case.path)
 
-        pd_times.append(pt)
-        ar_times.append(at)
+        ar_time, ar_ram = benchmark_arnio(case.path)
 
-        pd_rams.append(pr)
-        ar_rams.append(ar_r)
+        pd_times.append(pd_time)
+        ar_times.append(ar_time)
+
+        pd_rams.append(pd_ram)
+        ar_rams.append(ar_ram)
 
     print(
         f"{'Exec Time (avg)':<20} "
