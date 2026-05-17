@@ -499,7 +499,7 @@ def test_identifier_numeric_cast_prevention():
     assert list(result["id"]) == ["001", "002", "003"]
     assert list(result["customer_id"]) == ["00123", "00456", "00789"]
     assert list(result["zip_code"]) == ["01234", "02345", "03456"]
-
+    
 def test_duplicate_count_for_full_rows():
     df = pd.DataFrame([
         {"id": 1, "name": "A"},
