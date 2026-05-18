@@ -861,6 +861,21 @@ Accepted examples include:
 - `+91 9876543210`
 - `5551234567`
 
+### Choice validation
+
+`Choice()` restricts a column to an explicit set of allowed values — useful for status flags, categories, or any column with a known, finite set of valid entries.
+
+```python
+schema = ar.Schema({
+    "status": ar.Choice(["active", "inactive", "pending"], nullable=False),
+})
+
+result = schema.validate(frame)
+print(result.passed)
+```
+
+Any value not in the `allowed` set raises an `allowed` validation issue. Pass `unique=True` to also enforce that non-null values are unique, or `severity="warning"` to flag invalid values without failing validation.
+
 ### Warning-only validation
 
 ```python

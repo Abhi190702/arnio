@@ -159,6 +159,42 @@ class ArFrame:
         """
         return len(self) == 0
 
+    @property
+    def schema_summary(self) -> list[ColumnSummary]:
+        """Column names, dtypes, and nullability in one place.
+
+        Inspects the C++ frame directly — no pandas conversion triggered.
+
+        Returns
+        -------
+        list[ColumnSummary]
+            One :class:`ColumnSummary` per column, in original column order.
+            Each entry has three attributes:
+
+            * ``name`` – column name (``str``)
+            * ``dtype`` – inferred dtype string, e.g. ``"int64"`` (``str``)
+            * ``nullable`` – ``True`` if the column contains at least one null
+              value, ``False`` otherwise (``bool``)
+
+        Examples
+        --------
+        >>> frame = ar.read_csv("data.csv")
+        >>> for col in frame.schema_summary:
+        ...     print(col.name, col.dtype, col.nullable)
+        id int64 False
+        email string True
+        score float64 True
+        """
+        col_dtypes = self.dtypes
+        result: list[ColumnSummary] = []
+        for i, name in enumerate(self.columns):
+            mask = self._frame.column_by_index(i).get_null_mask()
+            nullable = bool(mask.any())
+            result.append(
+                ColumnSummary(name=name, dtype=col_dtypes[name], nullable=nullable)
+            )
+        return result
+
     # --- Methods ---
 
     def memory_usage(self, deep: bool = False) -> int:

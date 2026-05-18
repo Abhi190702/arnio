@@ -1473,9 +1473,65 @@ class TestMemoryUsageDeep:
         frame = ar.from_pandas(df)
         assert frame.memory_usage(deep=True) >= 0
 
-    def test_null_string_column_deep_does_not_crash(self):
-        """deep=True on a column with null strings must not raise."""
-        df = pd.DataFrame({"text": [None, "hello", None]})
-        frame = ar.from_pandas(df)
-        result = frame.memory_usage(deep=True)
-        assert result >= 0
+    # 2. Unhashable dict input must raise TypeError cleanly
+    with pytest.raises(TypeError, match="orient must be a string"):
+        frame.to_dict(orient={"mode": "list"})
+
+    # 3. Hashable non-string input (like int) must also raise TypeError cleanly
+    with pytest.raises(TypeError, match="orient must be a string"):
+        frame.to_dict(orient=1)
+
+    # 4. Backward Compatibility: Unsupported string must still raise ValueError
+    with pytest.raises(ValueError, match="orient must be one of: list, records, split"):
+        frame.to_dict(orient="invalid_string")
+
+
+def test_astype_rejects_pandas_na():
+    import pandas as pd
+    import pytest
+
+    import arnio as ar
+
+    frame = ar.ArFrame.from_records([{"a": "1"}, {"a": "2"}])
+
+    # 1. Scalar pd.NA check
+    with pytest.raises(TypeError, match="dtype must be a string"):
+        frame.astype(pd.NA)
+
+    # 2. Mapping/Dict with pd.NA check
+    with pytest.raises(TypeError, match="dtype must be a string"):
+        frame.astype({"a": pd.NA})
+
+
+def test_astype_rejects_multielement_numpy_array():
+    import numpy as np
+    import pytest
+
+    import arnio as ar
+
+    frame = ar.ArFrame.from_records([{"a": "1"}])
+
+    # 3. Multi-element NumPy array check
+    with pytest.raises(TypeError, match="dtype must be a string"):
+        frame.astype(np.array([1, 2]))
+
+
+# ── is_empty ──────────────────────────────────────────────────────────────────
+
+
+def test_is_empty_returns_false_when_frame_has_rows():
+    frame = ar.from_dict({"name": ["Alice", "Bob"], "age": [25, 30]})
+    assert frame.is_empty is False
+
+
+def test_is_empty_returns_true_for_empty_frame():
+    import pandas as pd
+
+    df = pd.DataFrame(columns=["name", "age"])
+    frame = ar.from_pandas(df)
+    assert frame.is_empty is True
+
+
+def test_is_empty_single_row_is_not_empty():
+    frame = ar.from_dict({"name": ["Alice"], "age": [25]})
+    assert frame.is_empty is False

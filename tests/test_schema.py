@@ -1542,4 +1542,2423 @@ def test_compare_schema_invalid_input(sample_csv):
     df_base = ar.read_csv(sample_csv)
 
     with pytest.raises(TypeError):
-        df_base.compare_schema(["not", "an", "ArFrame", "object"])
+        ar.Date(min=123)
+    with pytest.raises(TypeError):
+        ar.Date(max=45.6)
+
+
+def test_date_bounds_only_applied_after_format_check(tmp_path):
+    """Invalid date strings should report format errors, not spurious bound errors."""
+    path = tmp_path / "bad_and_oob.csv"
+    path.write_text("dt\n2024-06-15\nnot-a-date\n2023-01-01\n")
+
+    result = ar.validate(
+        ar.read_csv(path),
+        {"dt": ar.Date(min="2024-01-01")},
+    )
+
+    rules = {issue.rule for issue in result.issues}
+    assert "date" in rules  # format error for "not-a-date"
+    assert "min" in rules  # bound error for 2023-01-01
+    # "not-a-date" must NOT also appear as a min violation
+    min_issues = [i for i in result.issues if i.rule == "min"]
+    assert all(i.value != "not-a-date" for i in min_issues)
+
+
+def test_date_nullable_values_skip_bounds_check(tmp_path):
+    path = tmp_path / "nullable_dates.csv"
+    path.write_text("dt\n2024-06-15\n\n")
+
+    result = ar.validate(
+        ar.read_csv(path),
+        {"dt": ar.Date(min="2024-01-01", max="2024-12-31", nullable=True)},
+    )
+
+    assert result.passed
+
+
+def test_required_if_validation_passes_when_condition_matches(tmp_path):
+    path = tmp_path / "conditional_pass.csv"
+    path.write_text("user_type,country\n" "international,IN\n" "local,\n")
+
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "user_type": ar.String(nullable=False),
+            "country": ar.String(
+                nullable=True,
+                required_if=("user_type", "international"),
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+
+    assert result.passed
+    assert result.issue_count == 0
+    assert result.bad_rows == []
+
+
+def test_required_if_validation_fails_when_condition_matches(tmp_path):
+    path = tmp_path / "conditional_fail.csv"
+    path.write_text("user_type,country\n" "international,\n" "local,IN\n")
+
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "user_type": ar.String(nullable=False),
+            "country": ar.String(
+                nullable=True,
+                required_if=("user_type", "international"),
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+
+    assert not result.passed
+    assert result.issue_count == 1
+    assert result.issues[0].rule == "required_if"
+    assert result.issues[0].column == "country"
+    assert result.issues[0].row_index == 1
+
+
+def _date_order_rule(df):
+    return [
+        ar.ValidationIssue(
+            column="end_date",
+            rule="cross_field",
+            message="end_date must be >= start_date",
+            row_index=int(i) + 1,
+        )
+        for i, row in df.iterrows()
+        if row["end_date"] < row["start_date"]
+    ]
+
+
+def test_schema_rules_passes_when_all_rows_satisfy_rule(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text(
+        "start_date,end_date\n2024-01-01,2024-06-01\n2024-03-01,2024-12-31\n"
+    )
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule],
+    )
+
+    result = schema.validate(frame)
+
+    assert result.passed
+    assert result.issue_count == 0
+    assert result.bad_rows == []
+
+
+def test_schema_rules_fails_when_end_date_before_start_date(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text(
+        "start_date,end_date\n2025-05-17,2025-05-16\n2025-05-1,2025-05-11\n"
+    )
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule],
+    )
+
+    result = schema.validate(frame)
+
+    assert not result.passed
+    assert result.issue_count == 1
+    assert result.issues[0].rule == "cross_field"
+    assert result.issues[0].column == "end_date"
+
+
+def test_required_if_validation_ignores_non_matching_conditions(tmp_path):
+    path = tmp_path / "conditional_ignore.csv"
+    path.write_text("user_type,country\n" "local,\n" "guest,\n")
+
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "user_type": ar.String(nullable=False),
+            "country": ar.String(
+                nullable=True,
+                required_if=("user_type", "international"),
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_schema_rules_equal_boundary_passes(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text("start_date,end_date\n2025-05-18,2025-05-18\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule],
+    )
+
+    result = schema.validate(frame)
+
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_required_if_validation_reports_missing_trigger_column(tmp_path):
+    path = tmp_path / "missing_trigger.csv"
+    path.write_text("country\n" "IN\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {
+            "country": ar.String(
+                required_if=("user_type", "international"),
+            ),
+        }
+    )
+    result = schema.validate(frame)
+    assert not result.passed
+    assert result.issue_count == 1
+    assert result.issues[0].rule == "missing_column"
+    assert result.issues[0].column == "user_type"
+
+
+def test_schema_rules_row_index_is_one_based(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text(
+        "start_date,end_date\n"
+        "2025-01-01,2025-06-01\n"
+        "2025-09-01,2025-03-01\n"
+        "2025-01-01,2025-12-31\n"
+    )
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule],
+    )
+    result = schema.validate(frame)
+    assert not result.passed
+    assert len(result.issues) == 1
+    assert result.issues[0].row_index == 2
+
+
+def test_schema_rules_row_index_for_multiple_failing_rows(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text(
+        "start_date,end_date\n"
+        "2025-06-01,2025-01-01\n"
+        "2024-01-01,2024-12-31\n"
+        "2024-12-01,2024-03-01\n"
+    )
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule],
+    )
+    result = schema.validate(frame)
+    row_indexes = [issue.row_index for issue in result.issues]
+    assert row_indexes == [1, 3]
+
+
+def test_row_index_convention_is_documented_and_correct(tmp_path):
+    """Regression: row_index is 1-based, header excluded, first data row = 1."""
+    path = tmp_path / "rows.csv"
+    path.write_text("name,age\nAlice,30\nBob,-1\nCarol,25\n")
+    frame = ar.read_csv(path)
+    result = ar.validate(frame, {"age": ar.Int64(min=0)})
+
+    assert not result.passed
+    assert len(result.issues) == 1
+    # Bob is the second data row → row_index must be 2, not 0 or 1
+    assert result.issues[0].row_index == 2
+    assert result.issues[0].column == "age"
+    assert result.issues[0].rule == "min"
+
+
+def test_schema_rules_missing_column_returns_validation_issue(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text("start_date,end_date\n2024-01-01,2024-06-01\n")
+    frame = ar.read_csv(path)
+
+    def rule_with_bad_column(df):
+        return [
+            ar.ValidationIssue(
+                column="nonexistent",
+                rule="cross_field",
+                message="column missing",
+                row_index=int(i) + 1,
+            )
+            for i, row in df.iterrows()
+            if row["nonexistent"] < row["start_date"]
+        ]
+
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[rule_with_bad_column],
+    )
+    result = schema.validate(frame)
+    assert not result.passed
+    assert result.issue_count == 1
+    issue = result.issues[0]
+    assert isinstance(issue, ar.ValidationIssue)
+    assert issue.rule == "missing_column"
+    assert "nonexistent" in issue.message
+
+
+def test_required_if_validation_handles_null_trigger_values(tmp_path):
+    path = tmp_path / "null_trigger.csv"
+    path.write_text("user_type,country\n" ",\n" "international,IN\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {
+            "user_type": ar.String(nullable=True),
+            "country": ar.String(
+                nullable=True,
+                required_if=("user_type", "international"),
+            ),
+        }
+    )
+    result = schema.validate(frame)
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_register_validator_and_custom_field_passes(tmp_path):
+    ar.register_validator("positive_pass", lambda v: v > 0)
+    path = tmp_path / "scores.csv"
+    path.write_text("score\n1\n5\n100\n")
+    result = ar.validate(ar.read_csv(path), {"score": ar.Custom("positive_pass")})
+    assert result.passed
+
+
+def test_register_validator_and_custom_field_fails(tmp_path):
+    ar.register_validator("positive_fail", lambda v: v > 0)
+    path = tmp_path / "scores.csv"
+    path.write_text("score\n1\n-5\n0\n")
+    result = ar.validate(ar.read_csv(path), {"score": ar.Custom("positive_fail")})
+    assert not result.passed
+    assert result.issues[0].rule == "custom"
+    assert result.issues[0].row_index == 2
+
+
+def test_custom_field_respects_nullable(tmp_path):
+    import pandas as pd
+
+    ar.register_validator("positive_nullable", lambda v: v > 0)
+    df = pd.DataFrame({"score": [1, None, 5]})
+    frame = ar.from_pandas(df)
+    result = ar.validate(
+        frame, {"score": ar.Custom("positive_nullable", nullable=False)}
+    )
+    assert not result.passed
+    assert any(i.rule == "nullable" for i in result.issues)
+
+
+def test_custom_raises_for_unregistered_name():
+    try:
+        ar.Custom("nonexistent_validator")
+    except ValueError as exc:
+        assert "nonexistent_validator" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for unregistered validator")
+
+
+def test_register_validator_raises_for_non_callable():
+    try:
+        ar.register_validator("bad", "not_a_function")
+    except TypeError as exc:
+        assert "callable" in str(exc)
+    else:
+        raise AssertionError("Expected TypeError")
+
+
+def test_register_validator_raises_for_empty_name():
+    try:
+        ar.register_validator("", lambda v: True)
+    except ValueError as exc:
+        assert "non-empty" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for empty name")
+
+
+def test_custom_validator_exceptions_include_schema_context(tmp_path):
+    def broken_validator(value):
+        raise RuntimeError("validator exploded")
+
+    ar.register_validator("broken", broken_validator)
+
+    path = tmp_path / "scores.csv"
+    path.write_text("score\n1\n")
+
+    with pytest.raises(ar.ArnioError) as exc:
+        ar.validate(
+            ar.read_csv(path),
+            {"score": ar.Custom("broken")},
+        )
+
+    message = str(exc.value)
+    assert "broken" in message
+    assert "score" in message
+    assert "validator exploded" in message
+    assert isinstance(exc.value.__cause__, RuntimeError)
+
+
+def test_schema_rules_multiple_rules_all_run(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text("start_date,end_date\n2025-06-01,2025-01-01\n")
+    frame = ar.read_csv(path)
+
+    def always_fails(df):
+        return [
+            ar.ValidationIssue(
+                column="start_date",
+                rule="custom_check",
+                message="always fails",
+                row_index=1,
+            )
+        ]
+
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule, always_fails],
+    )
+    result = schema.validate(frame)
+    rules = {issue.rule for issue in result.issues}
+    assert "cross_field" in rules
+    assert "custom_check" in rules
+    assert result.issue_count == 2
+
+
+def test_schema_rules_none_by_default(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text("start_date,end_date\n2025-05-01,2025-01-01\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema({"start_date": ar.String(), "end_date": ar.String()})
+    result = schema.validate(frame)
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_currency_code_valid(tmp_path):
+    path = tmp_path / "currencies.csv"
+    path.write_text("currency\nUSD\nEUR\nINR\nJPY\nXXX\n")
+
+    result = ar.validate(
+        ar.read_csv(path),
+        {"currency": ar.CurrencyCode(nullable=False)},
+    )
+
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_currency_code_invalid(tmp_path):
+    path = tmp_path / "bad_currencies.csv"
+    # We add a dummy column so the empty currency row isn't skipped as a blank line
+    path.write_text(
+        "currency,dummy\nUS,1\nUSDD,2\nusd,3\nUS1,4\nEur,5\n,6\nZZZ,7\nABC,8\n"
+    )
+
+    result = ar.validate(
+        ar.read_csv(path),
+        {"currency": ar.CurrencyCode(nullable=False)},
+    )
+
+    assert not result.passed
+    assert result.issue_count == 8
+
+    assert sorted([issue.row_index for issue in result.issues]) == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+    ]
+
+    rules = {issue.rule for issue in result.issues}
+    assert "currency_code" in rules
+    assert "nullable" in rules
+
+
+def test_currency_code_override(tmp_path):
+    path = tmp_path / "custom_currencies.csv"
+    path.write_text("currency\nUSD\nZZZ\n")
+
+    result = ar.validate(
+        ar.read_csv(path),
+        {"currency": ar.CurrencyCode(nullable=False, allowed={"USD", "ZZZ"})},
+    )
+    assert result.passed
+    assert result.issue_count == 0
+
+    result_default = ar.validate(
+        ar.read_csv(path),
+        {"currency": ar.CurrencyCode(nullable=False)},
+    )
+    assert not result_default.passed
+    assert result_default.issue_count == 1
+    assert result_default.issues[0].value == "ZZZ"
+
+
+def test_currency_code_rejects_bare_string_allowed():
+    with pytest.raises(TypeError):
+        ar.CurrencyCode(allowed="USD")
+
+
+def test_currency_code_accepts_valid_allowed_sequence():
+    field = ar.CurrencyCode(allowed=["USD", "EUR"])
+
+    assert field.allowed == {"USD", "EUR"}
+
+
+def test_currency_code_rejects_non_string_allowed_values():
+    with pytest.raises(TypeError):
+        ar.CurrencyCode(allowed=["USD", 123])
+
+
+def test_currency_code_validation_respects_case_insensitive_field(tmp_path):
+    path = tmp_path / "mixed_case_currencies.csv"
+    path.write_text("currency\nusd\nEur\ninr\n")
+
+    result = ar.validate(
+        ar.read_csv(path),
+        {
+            "currency": ar.Field(
+                dtype="string",
+                semantic="currency_code",
+                case_sensitive=False,
+                nullable=False,
+            )
+        },
+    )
+
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_schema_rules_issue_shape_matches_validation_issue(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text("start_date,end_date\n2025-05-01,2025-01-01\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[_date_order_rule],
+    )
+    result = schema.validate(frame)
+    issue = result.issues[0]
+    assert isinstance(issue, ar.ValidationIssue)
+    assert issue.column == "end_date"
+    assert issue.rule == "cross_field"
+    assert isinstance(issue.message, str)
+    assert issue.row_index is not None
+
+
+def test_schema_rules_invalid_output_raises_type_error(tmp_path):
+    path = tmp_path / "dates.csv"
+    path.write_text("start_date,end_date\n2025-01-01,2025-06-01\n")
+    frame = ar.read_csv(path)
+
+    def bad_rule(df):
+        return ["not a ValidationIssue"]
+
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[bad_rule],
+    )
+
+    with pytest.raises(TypeError, match="ValidationIssue"):
+        schema.validate(frame)
+
+
+def test_diff_schema_reports_missing_extra_and_changed_fields():
+    expected = ar.Schema(
+        {
+            "id": ar.Int64(nullable=False, unique=True),
+            "email": ar.Email(nullable=False),
+            "status": ar.String(allowed={"active", "blocked"}),
+        },
+        strict=True,
+    )
+    observed = ar.Schema(
+        {
+            "id": ar.Int64(nullable=False),
+            "status": ar.String(allowed={"active", "pending"}),
+            "created_at": ar.DateTime(format="%Y-%m-%d"),
+        },
+        strict=False,
+    )
+
+    diff = ar.diff_schema(expected, observed)
+    changes = {(item.column, item.change, item.attribute) for item in diff.differences}
+
+    assert diff.changed
+    assert diff.difference_count == 5
+    assert ("email", "missing_column", None) in changes
+    assert ("created_at", "extra_column", None) in changes
+    assert ("id", "changed_field", "unique") in changes
+    assert ("status", "changed_field", "allowed") in changes
+    assert (None, "changed_schema", "strict") in changes
+
+
+def test_diff_schema_accepts_plain_field_dicts():
+    diff = ar.diff_schema(
+        {"id": ar.Int64(nullable=False)},
+        {"id": ar.Int64(nullable=False)},
+    )
+
+    assert not diff.changed
+    assert diff.difference_count == 0
+    assert diff.to_dict() == {
+        "changed": False,
+        "difference_count": 0,
+        "differences": [],
+    }
+
+
+def test_diff_schema_treats_composite_unique_order_as_equivalent():
+    expected = ar.Schema(
+        {"user_id": ar.String(), "event_id": ar.String()},
+        unique=["user_id", "event_id"],
+    )
+    observed = ar.Schema(
+        {"user_id": ar.String(), "event_id": ar.String()},
+        unique=["event_id", "user_id"],
+    )
+
+    diff = ar.diff_schema(expected, observed)
+
+    assert not diff.changed
+    assert diff.difference_count == 0
+
+
+def test_diff_schema_reports_composite_unique_column_set_changes():
+    expected = ar.Schema(
+        {"user_id": ar.String(), "event_id": ar.String(), "session_id": ar.String()},
+        unique=["user_id", "event_id"],
+    )
+    observed = ar.Schema(
+        {"user_id": ar.String(), "event_id": ar.String(), "session_id": ar.String()},
+        unique=["user_id", "session_id"],
+    )
+
+    diff = ar.diff_schema(expected, observed)
+
+    assert diff.changed
+    assert diff.differences == [
+        ar.SchemaDiffEntry(
+            column=None,
+            change="changed_schema",
+            attribute="unique",
+            expected=("event_id", "user_id"),
+            observed=("session_id", "user_id"),
+        )
+    ]
+
+
+def test_schema_diff_summary_and_markdown_escape_cells():
+    diff = ar.SchemaDiff(
+        [
+            ar.SchemaDiffEntry(
+                column="notes|raw",
+                change="changed_field",
+                attribute="pattern",
+                expected="left|right",
+                observed="left\nright",
+            )
+        ]
+    )
+
+    assert diff.summary() == {
+        "changed": True,
+        "difference_count": 1,
+        "differences_by_change": {"changed_field": 1},
+        "differences_by_column": {"notes|raw": 1},
+    }
+    markdown = diff.to_markdown()
+    assert "## Schema Diff" in markdown
+    assert "notes\\|raw" in markdown
+    assert "left\\|right" in markdown
+    assert "left<br>right" in markdown
+
+
+def test_datetime_timezone_aware_within_bounds_passes(tmp_path):
+    path = tmp_path / "tz_datetimes.csv"
+    path.write_text("ts\n2026-06-01T12:00:00+05:30\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {
+            "ts": ar.DateTime(
+                nullable=False,
+                format="%Y-%m-%dT%H:%M:%S%z",
+                min="2026-01-01T00:00:00+05:30",
+                max="2026-12-31T23:59:59+05:30",
+            )
+        }
+    )
+    result = schema.validate(frame)
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_datetime_timezone_aware_below_min_fails(tmp_path):
+    path = tmp_path / "tz_datetimes.csv"
+    path.write_text("ts\n2025-12-31T23:59:59+05:30\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {
+            "ts": ar.DateTime(
+                nullable=False,
+                format="%Y-%m-%dT%H:%M:%S%z",
+                min="2026-01-01T00:00:00+05:30",
+                max="2026-12-31T23:59:59+05:30",
+            )
+        }
+    )
+    result = schema.validate(frame)
+    assert not result.passed
+    assert any(i.rule == "min" for i in result.issues)
+    assert result.issues[0].row_index == 1
+
+
+def test_datetime_timezone_aware_above_max_fails(tmp_path):
+    path = tmp_path / "tz_datetimes.csv"
+    path.write_text("ts\n2027-01-01T00:00:00+05:30\n")
+    frame = ar.read_csv(path)
+    schema = ar.Schema(
+        {
+            "ts": ar.DateTime(
+                nullable=False,
+                format="%Y-%m-%dT%H:%M:%S%z",
+                min="2026-01-01T00:00:00+05:30",
+                max="2026-12-31T23:59:59+05:30",
+            )
+        }
+    )
+    result = schema.validate(frame)
+    assert not result.passed
+    assert any(i.rule == "max" for i in result.issues)
+    assert result.issues[0].row_index == 1
+
+
+def test_validate_unique_string_raises_type_error(tmp_path):
+    schema = ar.Schema(fields={"id": ar.String()}, unique=["id"])
+
+    object.__setattr__(schema, "unique", "id")
+
+    path = tmp_path / "unique_test.csv"
+    path.write_text("id\nA\nB\nA\n")
+    frame = ar.read_csv(path)
+
+    with pytest.raises(
+        TypeError, match="Schema 'unique' must be a list or tuple of strings"
+    ):
+        ar.validate(frame, schema)
+
+
+def test_validate_unique_invalid_member_type_raises_type_error(tmp_path):
+    schema = ar.Schema(fields={"id": ar.String()}, unique=["id"])
+
+    object.__setattr__(schema, "unique", ["id", 123])
+
+    path = tmp_path / "unique_member_test.csv"
+    path.write_text("id\nA\nB\n")
+    frame = ar.read_csv(path)
+
+    with pytest.raises(TypeError, match="Schema 'unique' members must be strings"):
+        ar.validate(frame, schema)
+
+
+def test_schema_json_roundtrip_preserves_fields_and_options():
+    ar.register_validator("positive_json", lambda v: v > 0)
+
+    schema = ar.Schema(
+        fields={
+            "id": ar.String(nullable=False, min_length=3, max_length=8, unique=True),
+            "status": ar.String(
+                allowed={"active", "inactive"}, required_if=("id", "A1")
+            ),
+            "score": ar.Custom("positive_json", nullable=False),
+            "created_at": ar.DateTime(
+                nullable=False,
+                format="%Y-%m-%dT%H:%M:%S",
+                min="2026-01-01T00:00:00",
+                max="2026-12-31T23:59:59",
+            ),
+        },
+        strict=True,
+        unique=["id", "created_at"],
+    )
+
+    restored = ar.Schema.from_json(schema.to_json())
+
+    assert restored == schema
+
+
+def test_schema_from_json_rejects_invalid_json():
+    with pytest.raises(ValueError, match="Invalid schema JSON"):
+        ar.Schema.from_json("{bad json}")
+
+
+def test_schema_to_json_warns_and_omits_rules():
+    schema = ar.Schema(
+        {"id": ar.String()},
+        rules=[lambda df: []],
+    )
+
+    with pytest.warns(UserWarning, match="rules_omitted"):
+        payload_str = schema.to_json()
+
+    payload = json.loads(payload_str)
+    assert payload["rules_omitted"] is True
+    assert "id" in payload["fields"]
+
+
+def test_schema_from_json_rejects_non_object_field_definition():
+    with pytest.raises(TypeError, match="must be an object"):
+        ar.Schema.from_json('{"fields":{"id":"string"},"strict":false,"unique":null}')
+
+
+def test_empty_string_fails_when_not_nullable():
+    df = pd.DataFrame(
+        {
+            "user_id": [1, 2, 3, 4, 5],
+            "username": ["alice", "", "   ", None, float("nan")],
+        }
+    )
+    schema = ar.Schema(
+        {"user_id": ar.Int64(nullable=False), "username": ar.String(nullable=False)}
+    )
+    result = ar.validate(ar.from_pandas(df), schema)
+
+    assert result.issue_count == 4
+    for issue in result.issues:
+        assert issue.column == "username"
+        assert issue.rule == "nullable"
+
+
+def test_empty_string_passes_when_nullable():
+    df = pd.DataFrame(
+        {
+            "user_id": [1, 2, 3, 4, 5],
+            "username": ["alice", "", "   ", None, float("nan")],
+        }
+    )
+    schema = ar.Schema(
+        {"user_id": ar.Int64(nullable=False), "username": ar.String(nullable=True)}
+    )
+    result = ar.validate(ar.from_pandas(df), schema)
+
+    assert result.issue_count == 0
+
+
+def test_required_if_treats_blank_strings_as_missing():
+    df = pd.DataFrame(
+        {
+            "user_type": [
+                "international",
+                "international",
+                "local",
+            ],
+            "country": [
+                "",
+                "   ",
+                "",
+            ],
+        }
+    )
+
+    schema = ar.Schema(
+        {
+            "user_type": ar.String(nullable=False),
+            "country": ar.String(
+                nullable=True,
+                required_if=("user_type", "international"),
+            ),
+        }
+    )
+
+    result = ar.validate(ar.from_pandas(df), schema)
+
+    assert result.issue_count == 2
+
+    for issue in result.issues:
+        assert issue.column == "country"
+        assert issue.rule == "required_if"
+
+
+def test_url_https_only_accepts_https(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url\nhttps://example.com\nhttps://test.org\n")
+    result = ar.validate(ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https"])})
+    assert result.passed
+
+
+def test_url_https_only_rejects_http(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url\nhttp://example.com\n")
+    result = ar.validate(ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https"])})
+    assert not result.passed
+
+
+def test_url_multiple_schemes_accepted(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url\nhttps://example.com\nftp://files.example.com\n")
+    result = ar.validate(
+        ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https", "ftp"])}
+    )
+    assert result.passed
+
+
+def test_url_multiple_schemes_rejects_unlisted(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url\nhttp://example.com\n")
+    result = ar.validate(
+        ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https", "ftp"])}
+    )
+    assert not result.passed
+
+
+def test_url_default_accepts_http_and_https(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url\nhttp://example.com\nhttps://example.com\n")
+    result = ar.validate(ar.read_csv(path), {"url": ar.URL()})
+    assert result.passed
+
+
+def test_url_allowed_schemes_nullable_true_accepts_nulls(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url,dummy\nhttps://example.com,1\n,2\n")
+    result = ar.validate(
+        ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https"], nullable=True)}
+    )
+    assert result.passed
+
+
+def test_url_allowed_schemes_nullable_false_rejects_nulls(tmp_path):
+    path = tmp_path / "urls.csv"
+    path.write_text("url,dummy\nhttps://example.com,1\n,2\n")
+    result = ar.validate(
+        ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https"], nullable=False)}
+    )
+    assert not result.passed
+
+
+def test_url_allowed_schemes_empty_list_raises():
+    with pytest.raises(ValueError, match="non-empty"):
+        ar.URL(allowed_schemes=[])
+
+
+def test_url_allowed_schemes_empty_string_raises():
+    with pytest.raises(ValueError, match="non-empty strings"):
+        ar.URL(allowed_schemes=[""])
+
+
+def test_url_allowed_schemes_non_string_raises():
+    with pytest.raises(ValueError, match="non-empty strings"):
+        ar.URL(allowed_schemes=[123])
+
+
+def test_url_allowed_schemes_whitespace_string_raises():
+    with pytest.raises(ValueError, match="non-empty strings"):
+        ar.URL(allowed_schemes=["   "])
+
+
+# --- Issue #1279: Schema.to_json() rules_omitted contract ---
+
+
+def test_url_allowed_schemes_trims_whitespace():
+    ar.URL(allowed_schemes=[" https ", " ftp "])
+
+
+def test_url_allowed_schemes_accepts_tuple():
+    ar.URL(allowed_schemes=("https", "ftp"))
+
+
+def test_url_allowed_schemes_accepts_set():
+    ar.URL(allowed_schemes={"https", "ftp"})
+
+
+def test_url_allowed_schemes_rejects_bare_string():
+    with pytest.raises(TypeError, match="allowed_schemes must be a sequence"):
+        ar.URL(allowed_schemes="https")
+
+
+def test_url_allowed_schemes_rejects_bare_bytes():
+    with pytest.raises(TypeError, match="allowed_schemes must be a sequence"):
+        ar.URL(allowed_schemes=b"https")
+
+
+@pytest.mark.parametrize(
+    "scheme",
+    ["https://", "https ftp", "1http"],
+)
+def test_url_allowed_schemes_reject_invalid_scheme_names(scheme):
+    with pytest.raises(
+        ValueError,
+        match="allowed_schemes must contain URL scheme names",
+    ):
+        ar.URL(allowed_schemes=[scheme])
+
+
+def test_url_allowed_schemes_accept_valid_scheme_characters():
+    ar.URL(allowed_schemes=["git+ssh", "custom.scheme"])
+
+
+def test_schema_to_json_with_rules_emits_warning():
+    """to_json() emits UserWarning when rules are present."""
+    schema = ar.Schema(
+        {"start_date": ar.String(), "end_date": ar.String()},
+        rules=[lambda df: []],
+    )
+    with pytest.warns(UserWarning, match="rules_omitted"):
+        schema.to_json()
+
+
+def test_schema_to_json_with_rules_includes_marker():
+    """to_json() payload contains rules_omitted: true when rules are present."""
+    schema = ar.Schema(
+        {"id": ar.String()},
+        rules=[lambda df: []],
+    )
+    with pytest.warns(UserWarning):
+        payload = json.loads(schema.to_json())
+    assert payload["rules_omitted"] is True
+
+
+def test_schema_to_json_without_rules_no_marker():
+    """to_json() payload does not include rules_omitted when no rules are present."""
+    schema = ar.Schema({"id": ar.String()})
+    payload = json.loads(schema.to_json())
+    assert "rules_omitted" not in payload
+
+
+def test_schema_to_json_without_rules_no_warning():
+    """to_json() emits no warning when no rules are present."""
+    schema = ar.Schema({"id": ar.String()})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        schema.to_json()  # must not raise
+
+
+def test_schema_to_json_with_rules_fields_are_preserved():
+    """Field definitions are fully serialized even when rules are omitted."""
+    schema = ar.Schema(
+        {
+            "start_date": ar.String(nullable=False),
+            "end_date": ar.String(nullable=True),
+        },
+        rules=[lambda df: []],
+    )
+    with pytest.warns(UserWarning):
+        payload = json.loads(schema.to_json())
+    assert set(payload["fields"].keys()) == {"start_date", "end_date"}
+
+
+def test_schema_from_json_tolerates_rules_omitted_marker():
+    """from_json() accepts a payload with rules_omitted: true without error or warning."""
+    schema = ar.Schema(
+        {"id": ar.String(nullable=False)},
+        rules=[lambda df: []],
+    )
+    with pytest.warns(UserWarning):
+        json_str = schema.to_json()
+
+    # Must not raise or warn
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        restored = ar.Schema.from_json(json_str)
+
+    assert "id" in restored.fields
+    assert not restored.rules
+
+
+def test_schema_field_only_roundtrip_with_rules_present():
+    """Fields, strict, and unique survive a to_json/from_json round-trip even when rules exist."""
+    schema = ar.Schema(
+        {
+            "id": ar.String(nullable=False),
+            "score": ar.Int64(nullable=True),
+        },
+        strict=True,
+        unique=["id"],
+        rules=[lambda df: []],
+    )
+    with pytest.warns(UserWarning):
+        restored = ar.Schema.from_json(schema.to_json())
+
+    assert restored.fields["id"] == schema.fields["id"]
+    assert restored.fields["score"] == schema.fields["score"]
+    assert restored.strict is True
+    assert list(restored.unique) == ["id"]
+    assert not restored.rules
+
+
+class TestIsSafelyConvertibleToDtype:
+    def test_id_column_rejects_leading_zeros(self):
+        series = pd.Series(["001", "002", "003"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "id") is False
+
+    def test_user_id_column_rejects_leading_zeros(self):
+        series = pd.Series(["0001", "0002"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "user_id") is False
+
+    def test_uuid_column_rejects_leading_zeros(self):
+        series = pd.Series(["0123", "0456"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "uuid") is False
+
+    def test_zip_column_rejects_leading_zeros(self):
+        series = pd.Series(["01234", "02345"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "zip") is False
+
+    def test_valid_int64_conversion(self):
+        series = pd.Series(["1", "2", "3"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "count") is True
+
+    def test_negative_int64_conversion(self):
+        series = pd.Series(["-1", "2", "3"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "delta") is True
+
+    def test_float64_conversion(self):
+        series = pd.Series(["1.5", "2.5", "3.0"])
+        assert _is_safely_convertible_to_dtype(series, "float64", "price") is True
+
+    def test_invalid_string_for_int64(self):
+        series = pd.Series(["abc", "def"])
+        assert _is_safely_convertible_to_dtype(series, "int64", "data") is False
+
+    def test_empty_series_returns_false(self):
+        series = pd.Series([], dtype="string")
+        assert _is_safely_convertible_to_dtype(series, "int64", "col") is False
+
+    def test_all_null_series_returns_false(self):
+        series = pd.Series([None, None])
+        assert _is_safely_convertible_to_dtype(series, "int64", "col") is False
+
+
+def test_int64_rejects_string_min():
+    with pytest.raises(TypeError, match="min must be numeric or None"):
+        ar.Int64(min="a")
+
+
+def test_int64_rejects_string_max():
+    with pytest.raises(TypeError, match="max must be numeric or None"):
+        ar.Int64(max="z")
+
+
+def test_int64_rejects_bool_min():
+    with pytest.raises(TypeError, match="min must be numeric or None"):
+        ar.Int64(min=True)
+
+
+def test_int64_rejects_bool_max():
+    with pytest.raises(TypeError, match="max must be numeric or None"):
+        ar.Int64(max=False)
+
+
+def test_int64_accepts_valid_numeric_bounds():
+    assert ar.Int64(min=0, max=10) is not None
+
+
+def test_int64_accepts_float_bounds():
+    assert ar.Int64(min=0.5, max=9.9) is not None
+
+
+def test_int64_accepts_none_bounds():
+    assert ar.Int64(min=None, max=None) is not None
+
+
+def test_int64_rejects_string_min_with_valid_max():
+    with pytest.raises(TypeError, match="min must be numeric or None"):
+        ar.Int64(min="a", max=1)
+
+
+def test_int64_rejects_valid_min_with_string_max():
+    with pytest.raises(TypeError, match="max must be numeric or None"):
+        ar.Int64(min=1, max="z")
+
+
+def test_int64_rejects_bool_pair():
+    with pytest.raises(TypeError, match="min must be numeric or None"):
+        ar.Int64(min=True, max=False)
+
+
+def test_float64_rejects_string_min_with_valid_max():
+    with pytest.raises(TypeError, match="min must be numeric or None"):
+        ar.Float64(min="a", max=1.0)
+
+
+def test_float64_rejects_bool_pair():
+    with pytest.raises(TypeError, match="min must be numeric or None"):
+        ar.Float64(min=True, max=False)
+
+
+def test_string_length_integer_subclass_serialization():
+    class MyInt(int):
+        pass
+
+    schema = ar.Schema(
+        {
+            "x": ar.String(
+                min_length=MyInt(3),
+                max_length=MyInt(5),
+            )
+        }
+    )
+
+    json_data = schema.to_json()
+    loaded = ar.Schema.from_json(json_data)
+
+    loaded_field = loaded.fields["x"]
+
+    assert loaded_field.min_length == 3
+    assert loaded_field.max_length == 5
+
+    assert loaded_field.min_length.__class__ is int
+    assert loaded_field.max_length.__class__ is int
+
+
+def test_string_length_validation_invalid_types():
+    with pytest.raises(TypeError, match="min_length must be an integer or None"):
+        ar.String(min_length="a")
+
+    with pytest.raises(TypeError, match="max_length must be an integer or None"):
+        ar.String(max_length=1.5)
+
+
+def test_string_length_validation_booleans():
+    with pytest.raises(TypeError, match="min_length must be an integer or None"):
+        ar.String(min_length=True)
+
+    with pytest.raises(TypeError, match="max_length must be an integer or None"):
+        ar.String(max_length=False)
+
+
+def test_string_length_validation_negative():
+    with pytest.raises(
+        ValueError, match="min_length must be greater than or equal to 0"
+    ):
+        ar.String(min_length=-1)
+
+    with pytest.raises(
+        ValueError, match="max_length must be greater than or equal to 0"
+    ):
+        ar.String(max_length=-1)
+
+
+def test_int64_rejects_nan_min():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Int64(min=float("nan"))
+
+
+def test_int64_rejects_nan_max():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Int64(max=float("nan"))
+
+
+def test_int64_rejects_inf_min():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Int64(min=float("inf"))
+
+
+def test_int64_rejects_neg_inf_max():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Int64(max=float("-inf"))
+
+
+def test_float64_rejects_nan_min():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Float64(min=float("nan"))
+
+
+def test_float64_rejects_nan_max():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Float64(max=float("nan"))
+
+
+def test_float64_rejects_inf_min():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Float64(min=float("inf"))
+
+
+def test_float64_rejects_neg_inf_max():
+    with pytest.raises(ValueError, match="finite"):
+        ar.Float64(max=float("-inf"))
+
+
+def test_int64_finite_bounds_still_pass():
+    assert ar.Int64(min=-100, max=100) is not None
+
+
+def test_float64_finite_bounds_still_pass():
+    assert ar.Float64(min=-1.5, max=1.5) is not None
+
+
+def test_validation_issue_accepts_valid_severities():
+    error_issue = ar.ValidationIssue(
+        column="age", rule="min", message="Too small", severity="error"
+    )
+    warning_issue = ar.ValidationIssue(
+        column="age", rule="min", message="Too small", severity="warning"
+    )
+
+    assert error_issue.severity == "error"
+    assert warning_issue.severity == "warning"
+
+
+def test_validation_issue_rejects_invalid_severity_typo():
+    with pytest.raises(ValueError, match="severity must be 'error' or 'warning'"):
+        ar.ValidationIssue(
+            column="score", rule="custom", message="bad", severity="erorr"
+        )
+
+
+def test_validation_issue_to_dict_serializes_timestamp():
+    issue = ar.ValidationIssue(
+        column="created_at",
+        rule="custom",
+        message="bad timestamp",
+        value=pd.Timestamp("2026-01-01"),
+    )
+
+    payload = issue.to_dict()
+
+    assert payload["value"] == "2026-01-01T00:00:00"
+
+
+def test_validation_issue_to_dict_serializes_numpy_array():
+    issue = ar.ValidationIssue(
+        column="scores",
+        rule="custom",
+        message="bad array",
+        value=np.array([1, 2]),
+    )
+
+    payload = issue.to_dict()
+
+    assert payload["value"] == [1, 2]
+
+
+def test_validation_issue_to_dict_is_json_serializable():
+    issue = ar.ValidationIssue(
+        column="created_at",
+        rule="custom",
+        message="bad value",
+        value=pd.Timestamp("2026-01-01"),
+    )
+
+    json.dumps(issue.to_dict())
+
+
+def test_validation_result_to_dict_serializes_timestamp_and_array_values():
+    result = ar.ValidationResult(
+        row_count=1,
+        issue_count=2,
+        issues=[
+            ar.ValidationIssue(
+                column="created_at",
+                rule="custom",
+                message="bad timestamp",
+                value=pd.Timestamp("2026-01-01"),
+            ),
+            ar.ValidationIssue(
+                column="scores",
+                rule="custom",
+                message="bad array",
+                value=np.array([1, 2]),
+            ),
+        ],
+        bad_rows=[],
+    )
+
+    payload = result.to_dict()
+
+    assert payload["issues"][0]["value"] == "2026-01-01T00:00:00"
+    assert payload["issues"][1]["value"] == [1, 2]
+
+    json.dumps(payload)
+
+
+def test_custom_rule_with_invalid_severity_fails_validation_execution():
+    def bad_custom_rule(df):
+        return [
+            ar.ValidationIssue(column="x", rule="demo", message="bad", severity="erorr")
+        ]
+
+    frame = ar.from_pandas(pd.DataFrame({"x": [1]}))
+    schema = ar.Schema({"x": ar.Field()}, rules=[bad_custom_rule])
+
+    with pytest.raises(ValueError, match="severity must be 'error' or 'warning'"):
+        schema.validate(frame)
+
+
+@pytest.mark.parametrize("dtype", [123, True, []])
+def test_field_dtype_rejects_non_string(dtype):
+    with pytest.raises(TypeError, match="dtype must be a string or None"):
+        ar.Field(dtype=dtype)
+
+
+def test_field_dtype_accepts_supported_public_dtypes():
+    for dtype in ("int64", "float64", "string", "bool", "datetime", None):
+        field = ar.Field(dtype=dtype)
+
+        assert field.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", ["", "uuid", "int", "FLOAT64"])
+def test_field_dtype_rejects_unsupported_strings(dtype):
+    with pytest.raises(ValueError, match="dtype must be one of"):
+        ar.Field(dtype=dtype)
+
+
+def test_field_pattern_rejects_non_string():
+    with pytest.raises(TypeError, match="pattern must be a str or None"):
+        ar.Field(pattern=123)
+
+
+def test_field_pattern_rejects_invalid_regex():
+    with pytest.raises(ValueError, match="not a valid regular expression"):
+        ar.Field(pattern="[unclosed")
+
+
+def test_field_allowed_rejects_bare_string():
+    with pytest.raises(TypeError, match="allowed must be a list, tuple, or set"):
+        ar.Field(allowed="abc")
+
+
+def test_field_max_length_rejects_non_int():
+    with pytest.raises(TypeError, match="max_length must be an int or None"):
+        ar.Field(max_length="x")
+
+
+def test_field_min_length_rejects_non_int():
+    with pytest.raises(TypeError, match="min_length must be an int or None"):
+        ar.Field(min_length="x")
+
+
+def test_field_min_length_rejects_negative():
+    with pytest.raises(ValueError, match="min_length must be >= 0"):
+        ar.Field(min_length=-1)
+
+
+def test_field_max_length_rejects_negative():
+    with pytest.raises(ValueError, match="max_length must be >= 0"):
+        ar.Field(max_length=-1)
+
+
+def test_field_min_length_exceeds_max_length():
+    with pytest.raises(ValueError, match="min_length.*must be <= max_length"):
+        ar.Field(min_length=10, max_length=3)
+
+
+def test_field_valid_direct_construction():
+    f = ar.Field(
+        dtype="string", pattern=r"\d+", allowed=["a", "b"], min_length=1, max_length=5
+    )
+    assert f.pattern == r"\d+"
+
+
+def test_field_allowed_rejects_dict():
+    with pytest.raises(TypeError, match="allowed must be a list, tuple, or set"):
+        ar.Field(allowed={"a": 1})
+
+
+def test_field_allowed_rejects_generator():
+    with pytest.raises(TypeError, match="allowed must be a list, tuple, or set"):
+        ar.Field(allowed=(x for x in ["a"]))
+
+
+def test_field_allowed_rejects_bytes():
+    with pytest.raises(TypeError, match="allowed must be a list, tuple, or set"):
+        ar.Field(allowed=b"abc")
+
+
+def test_custom_field_required_if_validation_passes_when_condition_matches(tmp_path):
+    ar.register_validator("positive_req_pass", lambda v: v > 0)
+
+    path = tmp_path / "custom_conditional_pass.csv"
+    path.write_text("status,score\n" "active,10\n" "inactive,\n")
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "status": ar.String(nullable=False),
+            "score": ar.Custom(
+                "positive_req_pass", nullable=True, required_if=("status", "active")
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_custom_field_required_if_validation_fails_when_condition_matches(tmp_path):
+    ar.register_validator("positive_req_required", lambda v: v > 0)
+
+    path = tmp_path / "custom_conditional_fail.csv"
+    path.write_text("status,score\n" "active,\n" "inactive,5\n")
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "status": ar.String(nullable=False),
+            "score": ar.Custom(
+                "positive_req_required", nullable=True, required_if=("status", "active")
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+    assert not result.passed
+    assert result.issue_count == 1
+    assert result.issues[0].rule == "required_if"
+    assert result.issues[0].column == "score"
+    assert result.issues[0].row_index == 1
+
+
+def test_custom_field_required_if_validation_ignores_non_matching_conditions(tmp_path):
+    ar.register_validator("positive_req_ignore", lambda v: v > 0)
+
+    path = tmp_path / "custom_conditional_ignore.csv"
+    path.write_text("status,score\n" "pending,\n" "inactive,\n")
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "status": ar.String(nullable=False),
+            "score": ar.Custom(
+                "positive_req_ignore", nullable=True, required_if=("status", "active")
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+    assert result.passed
+    assert result.issue_count == 0
+
+
+def test_custom_field_required_if_enforces_rule_logic_when_matched(tmp_path):
+    ar.register_validator("positive_req_rule", lambda v: v > 0)
+
+    path = tmp_path / "custom_conditional_rule_fail.csv"
+    path.write_text("status,score\n" "active,-5\n")
+    frame = ar.read_csv(path)
+
+    schema = ar.Schema(
+        {
+            "status": ar.String(nullable=False),
+            "score": ar.Custom(
+                "positive_req_rule", nullable=True, required_if=("status", "active")
+            ),
+        }
+    )
+
+    result = schema.validate(frame)
+    assert not result.passed
+    assert result.issue_count == 1
+    assert result.issues[0].rule == "custom"
+    assert result.issues[0].column == "score"
+    assert result.issues[0].row_index == 1
+
+
+def test_custom_field_json_roundtrip_preserves_required_if():
+    ar.register_validator("positive_req_json", lambda v: v > 0)
+
+    schema = ar.Schema(
+        fields={
+            "id": ar.String(nullable=False),
+            "score": ar.Custom(
+                "positive_req_json", nullable=True, required_if=("id", "A1")
+            ),
+        }
+    )
+
+    restored = ar.Schema.from_json(schema.to_json())
+    assert restored == schema
+
+
+def test_unknown_semantic_severity_preservation():
+    frame = ar.from_dict({"x": ["abc"]})
+    unknown_schema = ar.Schema({"x": ar.Field(semantic="unknown", severity="warning")})
+
+    result = ar.validate(frame, unknown_schema)
+    assert not result.issues[0].passed if hasattr(result.issues[0], "passed") else True
+    assert len(result.issues) == 1
+    assert result.issues[0].rule == "semantic"
+    assert result.issues[0].severity == "warning"
+
+
+def test_missing_custom_validator_severity_preservation():
+    frame = ar.from_dict({"x": ["abc"]})
+    missing_custom_schema = ar.Schema(
+        {"x": ar.Field(semantic="custom:missing", severity="warning")}
+    )
+
+    result = ar.validate(frame, missing_custom_schema)
+    for issue in result.issues:
+        if issue.rule == "custom":
+            assert issue.severity == "warning"
+
+
+def test_validate_max_errors_zero_invalid_data():
+    frame = ar.from_pandas(pd.DataFrame({"age": ["not-an-int"]}))
+    schema = ar.Schema({"age": ar.Int64()})
+
+    with pytest.raises(ValueError, match="max_errors must be >= 1"):
+        ar.validate(frame, schema, max_errors=0)
+
+
+def test_validate_max_errors_zero_missing_columns():
+    frame = ar.from_pandas(pd.DataFrame({"name": ["Alice"]}))
+    schema = ar.Schema({"age": ar.Int64()})
+
+    with pytest.raises(ValueError, match="max_errors must be >= 1"):
+        ar.validate(frame, schema, max_errors=0)
+
+
+def test_validate_max_errors_zero_strict_schema():
+    frame = ar.from_pandas(pd.DataFrame({"age": [25], "extra": ["unexpected"]}))
+    schema = ar.Schema({"age": ar.Int64()}, strict=True)
+
+    with pytest.raises(ValueError, match="max_errors must be >= 1"):
+        ar.validate(frame, schema, max_errors=0)
+
+
+def test_validate_max_errors_zero_valid_data():
+    frame = ar.from_pandas(pd.DataFrame({"age": [25]}))
+    schema = ar.Schema({"age": ar.Int64()})
+
+    with pytest.raises(ValueError, match="max_errors must be >= 1"):
+        ar.validate(frame, schema, max_errors=0)
+
+
+def test_normalize_sequence_homogeneous_strings():
+    schema = ar.Schema({"status": ar.String(allowed={"active", "inactive", "pending"})})
+    payload = json.loads(schema.to_json())
+    assert payload["fields"]["status"]["allowed"] == ["active", "inactive", "pending"]
+
+
+def test_normalize_sequence_homogeneous_numerics():
+    schema = ar.Schema({"code": ar.Field(allowed={1, 2, 10})})
+    payload = json.loads(schema.to_json())
+    assert payload["fields"]["code"]["allowed"] == [1, 2, 10]
+
+
+def test_normalize_sequence_mixed_scalar_allowed_does_not_raise():
+    schema = ar.Schema({"code": ar.String(allowed={1, "1"})})
+    result = schema.to_json()
+    assert result is not None
+
+
+def test_normalize_sequence_mixed_scalar_allowed_is_deterministic():
+    schema = ar.Schema({"code": ar.String(allowed={1, "1", 2, "two"})})
+    assert schema.to_json() == schema.to_json()
+
+
+def test_mixed_scalar_allowed_roundtrip():
+    """Mixed-type allowed values survive a to_json() / from_json() round-trip."""
+    schema = ar.Schema({"code": ar.String(allowed={1, "1"})})
+    restored = ar.Schema.from_json(schema.to_json())
+    assert restored.fields["code"].allowed == {1, "1"}
+
+
+# ---------------------------------------------------------------------------
+# ValidationIssue core field type validation
+# ---------------------------------------------------------------------------
+
+
+def test_validation_issue_rejects_non_string_column():
+    with pytest.raises(TypeError, match="column"):
+        ar.ValidationIssue(column=123, rule="min", message="msg")
+
+
+def test_validation_issue_rejects_list_column():
+    with pytest.raises(TypeError, match="column"):
+        ar.ValidationIssue(column=["col"], rule="min", message="msg")
+
+
+def test_validation_issue_accepts_none_column():
+    issue = ar.ValidationIssue(column=None, rule="min", message="msg")
+    assert issue.column is None
+
+
+def test_validation_issue_accepts_string_column():
+    issue = ar.ValidationIssue(column="age", rule="min", message="msg")
+    assert issue.column == "age"
+
+
+def test_validation_issue_rejects_list_rule():
+    with pytest.raises(TypeError, match="rule"):
+        ar.ValidationIssue(column="x", rule=["not", "hashable"], message="msg")
+
+
+def test_validation_issue_rejects_empty_string_rule():
+    with pytest.raises(TypeError, match="rule"):
+        ar.ValidationIssue(column="x", rule="", message="msg")
+
+
+def test_validation_issue_rejects_int_rule():
+    with pytest.raises(TypeError, match="rule"):
+        ar.ValidationIssue(column="x", rule=99, message="msg")
+
+
+def test_validation_issue_rejects_int_message():
+    with pytest.raises(TypeError, match="message"):
+        ar.ValidationIssue(column="x", rule="min", message=5)
+
+
+def test_validation_issue_rejects_none_message():
+    with pytest.raises(TypeError, match="message"):
+        ar.ValidationIssue(column="x", rule="min", message=None)
+
+
+def test_validation_issue_rejects_string_row_index():
+    with pytest.raises(TypeError, match="row_index"):
+        ar.ValidationIssue(column="x", rule="min", message="msg", row_index="row1")
+
+
+def test_validation_issue_accepts_zero_row_index():
+    issue = ar.ValidationIssue(column="x", rule="min", message="msg", row_index=0)
+    assert issue.row_index == 0
+
+
+def test_validation_issue_rejects_negative_row_index():
+    with pytest.raises(ValueError, match="row_index"):
+        ar.ValidationIssue(column="x", rule="min", message="msg", row_index=-1)
+
+
+def test_validation_issue_rejects_bool_row_index():
+    with pytest.raises(TypeError, match="row_index"):
+        ar.ValidationIssue(column="x", rule="min", message="msg", row_index=True)
+
+
+def test_validation_issue_accepts_none_row_index():
+    issue = ar.ValidationIssue(column="x", rule="min", message="msg", row_index=None)
+    assert issue.row_index is None
+
+
+def test_validation_issue_accepts_row_index_of_one():
+    issue = ar.ValidationIssue(column="x", rule="min", message="msg", row_index=1)
+    assert issue.row_index == 1
+
+
+def test_validation_issue_reproduction_case_raises_at_construction():
+    with pytest.raises((TypeError, ValueError)):
+        ar.ValidationIssue(
+            column=123,
+            rule=["not", "hashable"],
+            message=5,
+            row_index="row1",
+        )
+
+
+def test_custom_rule_returning_malformed_issue_raises_early(tmp_path):
+    def bad_rule(df):
+        return [
+            ar.ValidationIssue(
+                column=123,
+                rule=["not", "a", "string"],
+                message=5,
+                row_index="row1",
+            )
+        ]
+
+    frame = ar.from_pandas(pd.DataFrame({"x": [1]}))
+    schema = ar.Schema({"x": ar.Field()}, rules=[bad_rule])
+
+    with pytest.raises((TypeError, ValueError)):
+        schema.validate(frame)
+
+
+def test_from_json_rejects_unknown_top_level_key():
+    payload = json.dumps(
+        {
+            "fields": {"email": {"dtype": "string"}},
+            "uniqe": ["email"],
+        }
+    )
+    with pytest.raises(ValueError, match="uniqe"):
+        ar.Schema.from_json(payload)
+
+
+def test_from_json_rejects_unknown_field_key():
+    payload = json.dumps(
+        {
+            "fields": {
+                "email": {
+                    "dtype": "string",
+                    "nulllable": False,
+                }
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="nulllable"):
+        ar.Schema.from_json(payload)
+
+
+def test_from_json_round_trip_is_accepted():
+    original = ar.Schema(
+        fields={"email": ar.String(nullable=False)},
+        strict=True,
+        unique=["email"],
+    )
+    recovered = ar.Schema.from_json(original.to_json())
+    assert recovered.fields["email"].nullable is False
+    assert recovered.unique == ["email"]
+
+
+"""
+Tests for the UUID, IPv4, and MACAddress schema validators added in
+issue #1604 ("Add real-world schema validators").
+
+Covers:
+  - _SEMANTIC_PATTERNS regex correctness (valid / invalid edge cases)
+  - Factory-function return types and Field attribute wiring
+  - End-to-end validate() integration (pass + fail paths)
+  - nullable=False, unique=True, severity="warning" propagation
+  - Schema JSON round-trip (to_json / from_json)
+"""
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _frame(data: dict) -> ArFrame:
+    """Build a minimal ArFrame from a plain dict of lists."""
+    return ar.from_pandas(pd.DataFrame(data))
+
+
+def _issues(result) -> list[str]:
+    """Return (rule, value) pairs for easy assertion."""
+    return [(i.rule, i.value) for i in result.issues]
+
+
+# ===========================================================================
+# 1.  _SEMANTIC_PATTERNS – regex correctness
+# ===========================================================================
+
+
+class TestUUIDPattern:
+    PAT = _SEMANTIC_PATTERNS["uuid"]
+
+    def _match(self, value: str) -> bool:
+        import re
+
+        return bool(re.compile(self.PAT).fullmatch(value))
+
+    # --- valid ---
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "550e8400-e29b-41d4-a716-446655440000",  # v4, lowercase
+            "A987FBC9-4BED-3078-CF07-9141BA07C9F3",  # v3, uppercase
+            "00000000-0000-0000-0000-000000000000",  # nil UUID
+            "ffffffff-ffff-ffff-ffff-ffffffffffff",  # all-f
+            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",  # v1 mixed-case
+        ],
+    )
+    def test_valid_uuids(self, value):
+        assert self._match(value), f"Expected match for {value!r}"
+
+    # --- invalid ---
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "550e8400e29b41d4a716446655440000",  # no hyphens
+            "550e8400-e29b-41d4-a716",  # truncated
+            "550e8400-e29b-41d4-a716-44665544000",  # last segment too short
+            "550e8400-e29b-41d4-a716-4466554400001",  # last segment too long
+            "ZZZZZZZZ-e29b-41d4-a716-446655440000",  # non-hex chars
+            "550e8400-e29b-41d4-a716-446655440000 ",  # trailing space
+            " 550e8400-e29b-41d4-a716-446655440000",  # leading space
+            "",  # empty string
+        ],
+    )
+    def test_invalid_uuids(self, value):
+        assert not self._match(value), f"Expected no match for {value!r}"
+
+
+class TestIPv4Pattern:
+    PAT = _SEMANTIC_PATTERNS["ipv4"]
+
+    def _match(self, value: str) -> bool:
+        import re
+
+        return bool(re.compile(self.PAT).fullmatch(value))
+
+    # --- valid ---
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "0.0.0.0",
+            "255.255.255.255",
+            "192.168.1.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "1.2.3.4",
+            "100.200.100.200",
+            "249.249.249.249",
+        ],
+    )
+    def test_valid_ipv4(self, value):
+        assert self._match(value), f"Expected match for {value!r}"
+
+    # --- invalid ---
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "256.0.0.0",  # octet out of range
+            "192.168.01.1",  # leading zero rejected
+            "192.168.1.01",  # leading zero rejected (last octet)
+            "00.0.0.0",  # leading zero on first octet
+            "192.168.1",  # only 3 octets
+            "192.168.1.1.1",  # 5 octets
+            "192.168.1.1 ",  # trailing space
+            " 192.168.1.1",  # leading space
+            "abc.def.ghi.jkl",  # letters
+            "999.999.999.999",  # all out of range
+            "",  # empty string
+            "192.168.1.",  # trailing dot
+            ".192.168.1.1",  # leading dot
+        ],
+    )
+    def test_invalid_ipv4(self, value):
+        assert not self._match(value), f"Expected no match for {value!r}"
+
+
+class TestMACAddressPattern:
+    PAT = _SEMANTIC_PATTERNS["mac_address"]
+
+    def _match(self, value: str) -> bool:
+        import re
+
+        return bool(re.compile(self.PAT).fullmatch(value))
+
+    # --- valid ---
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "AA:BB:CC:DD:EE:FF",  # colon, uppercase
+            "aa:bb:cc:dd:ee:ff",  # colon, lowercase
+            "AA-BB-CC-DD-EE-FF",  # hyphen, uppercase
+            "aa-bb-cc-dd-ee-ff",  # hyphen, lowercase
+            "00:1A:2B:3C:4D:5E",  # mixed case, colon
+            "00-1a-2b-3c-4d-5e",  # mixed case, hyphen
+            "FF:FF:FF:FF:FF:FF",  # broadcast
+            "00:00:00:00:00:00",  # zero MAC
+        ],
+    )
+    def test_valid_mac_addresses(self, value):
+        assert self._match(value), f"Expected match for {value!r}"
+
+    # --- invalid ---
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "AA:BB:CC:DD:EE",  # 5 octets only
+            "AA:BB:CC:DD:EE:FF:00",  # 7 octets
+            "GG:BB:CC:DD:EE:FF",  # non-hex octet
+            "AA.BB.CC.DD.EE.FF",  # Cisco dot notation (unsupported)
+            "AABBCCDDEEFF",  # no separator
+            "AA:BB-CC:DD:EE:FF",  # mixed separators
+            "AA:BB:CC:DD:EE:FG",  # non-hex in last octet
+            "AA:BB:CC:DD:EE:FF ",  # trailing space
+            " AA:BB:CC:DD:EE:FF",  # leading space
+            "",  # empty string
+            "AA:BB:CC:DD:EE:F",  # short last octet
+        ],
+    )
+    def test_invalid_mac_addresses(self, value):
+        assert not self._match(value), f"Expected no match for {value!r}"
+
+
+# ===========================================================================
+# 2.  Factory functions – return type and Field attribute wiring
+# ===========================================================================
+
+
+class TestUUIDFactory:
+    def test_returns_field(self):
+        assert isinstance(ar.UUID(), Field)
+
+    def test_semantic_attribute(self):
+        assert ar.UUID().semantic == "uuid"
+
+    def test_dtype_is_string(self):
+        assert ar.UUID().dtype == "string"
+
+    def test_defaults(self):
+        f = ar.UUID()
+        assert f.nullable is True
+        assert f.unique is False
+        assert f.severity == "error"
+        assert f.required_if is None
+
+    def test_nullable_false(self):
+        assert ar.UUID(nullable=False).nullable is False
+
+    def test_unique_true(self):
+        assert ar.UUID(unique=True).unique is True
+
+    def test_severity_warning(self):
+        assert ar.UUID(severity="warning").severity == "warning"
+
+    def test_invalid_severity_raises(self):
+        with pytest.raises(ValueError):
+            ar.UUID(severity="critical")
+
+
+class TestIPv4Factory:
+    def test_returns_field(self):
+        assert isinstance(ar.IPv4(), Field)
+
+    def test_semantic_attribute(self):
+        assert ar.IPv4().semantic == "ipv4"
+
+    def test_dtype_is_string(self):
+        assert ar.IPv4().dtype == "string"
+
+    def test_defaults(self):
+        f = ar.IPv4()
+        assert f.nullable is True
+        assert f.unique is False
+        assert f.severity == "error"
+        assert f.required_if is None
+
+    def test_nullable_false(self):
+        assert ar.IPv4(nullable=False).nullable is False
+
+    def test_unique_true(self):
+        assert ar.IPv4(unique=True).unique is True
+
+    def test_severity_warning(self):
+        assert ar.IPv4(severity="warning").severity == "warning"
+
+    def test_invalid_severity_raises(self):
+        with pytest.raises(ValueError):
+            ar.IPv4(severity="critical")
+
+
+class TestMACAddressFactory:
+    def test_returns_field(self):
+        assert isinstance(ar.MACAddress(), Field)
+
+    def test_semantic_attribute(self):
+        assert ar.MACAddress().semantic == "mac_address"
+
+    def test_dtype_is_string(self):
+        assert ar.MACAddress().dtype == "string"
+
+    def test_defaults(self):
+        f = ar.MACAddress()
+        assert f.nullable is True
+        assert f.unique is False
+        assert f.severity == "error"
+        assert f.required_if is None
+
+    def test_nullable_false(self):
+        assert ar.MACAddress(nullable=False).nullable is False
+
+    def test_unique_true(self):
+        assert ar.MACAddress(unique=True).unique is True
+
+    def test_severity_warning(self):
+        assert ar.MACAddress(severity="warning").severity == "warning"
+
+    def test_invalid_severity_raises(self):
+        with pytest.raises(ValueError):
+            ar.MACAddress(severity="critical")
+
+
+# ===========================================================================
+# 3.  End-to-end validate() – UUID
+# ===========================================================================
+
+
+class TestUUIDValidation:
+    def test_all_valid_passes(self):
+        frame = _frame(
+            {
+                "id": [
+                    "550e8400-e29b-41d4-a716-446655440000",
+                    "A987FBC9-4BED-3078-CF07-9141BA07C9F3",
+                ]
+            }
+        )
+        schema = Schema({"id": ar.UUID()})
+        result = validate(frame, schema)
+        assert result.passed
+
+    def test_missing_hyphens_fails(self):
+        frame = _frame({"id": ["550e8400e29b41d4a716446655440000"]})
+        schema = Schema({"id": ar.UUID()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_wrong_segment_length_fails(self):
+        frame = _frame({"id": ["550e8400-e29b-41d4-a716-44665544"]})  # last seg short
+        schema = Schema({"id": ar.UUID()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_non_hex_chars_fails(self):
+        frame = _frame({"id": ["ZZZZZZZZ-e29b-41d4-a716-446655440000"]})
+        schema = Schema({"id": ar.UUID()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_null_allowed_by_default(self):
+        frame = _frame({"id": [None, "550e8400-e29b-41d4-a716-446655440000"]})
+        schema = Schema({"id": ar.UUID()})
+        result = validate(frame, schema)
+        assert result.passed
+
+    def test_null_rejected_when_not_nullable(self):
+        frame = _frame({"id": [None, "550e8400-e29b-41d4-a716-446655440000"]})
+        schema = Schema({"id": ar.UUID(nullable=False)})
+        result = validate(frame, schema)
+        assert not result.passed
+        assert any(i.rule == "nullable" for i in result.issues)
+
+    def test_duplicates_rejected_when_unique(self):
+        uid = "550e8400-e29b-41d4-a716-446655440000"
+        frame = _frame({"id": [uid, uid]})
+        schema = Schema({"id": ar.UUID(unique=True)})
+        result = validate(frame, schema)
+        assert not result.passed
+        assert any(i.rule == "unique" for i in result.issues)
+
+    def test_severity_warning_propagates(self):
+        frame = _frame({"id": ["not-a-uuid"]})
+        schema = Schema({"id": ar.UUID(severity="warning")})
+        result = validate(frame, schema)
+        assert result.passed  # warnings don't fail
+        assert any(i.severity == "warning" for i in result.issues)
+
+    def test_nil_uuid_passes(self):
+        frame = _frame({"id": ["00000000-0000-0000-0000-000000000000"]})
+        schema = Schema({"id": ar.UUID()})
+        assert validate(frame, schema).passed
+
+    def test_uppercase_hex_passes(self):
+        frame = _frame({"id": ["A987FBC9-4BED-3078-CF07-9141BA07C9F3"]})
+        schema = Schema({"id": ar.UUID()})
+        assert validate(frame, schema).passed
+
+
+# ===========================================================================
+# 4.  End-to-end validate() – IPv4
+# ===========================================================================
+
+
+class TestIPv4Validation:
+    def test_all_valid_passes(self):
+        frame = _frame({"ip": ["0.0.0.0", "192.168.1.1", "255.255.255.255"]})
+        schema = Schema({"ip": ar.IPv4()})
+        assert validate(frame, schema).passed
+
+    def test_octet_out_of_range_fails(self):
+        frame = _frame({"ip": ["256.0.0.0"]})
+        schema = Schema({"ip": ar.IPv4()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_leading_zero_rejected(self):
+        """192.168.01.1 has a leading zero in the third octet — must fail."""
+        frame = _frame({"ip": ["192.168.01.1"]})
+        schema = Schema({"ip": ar.IPv4()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_too_few_octets_fails(self):
+        frame = _frame({"ip": ["192.168.1"]})
+        schema = Schema({"ip": ar.IPv4()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_too_many_octets_fails(self):
+        frame = _frame({"ip": ["192.168.1.1.1"]})
+        schema = Schema({"ip": ar.IPv4()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_alpha_chars_fail(self):
+        frame = _frame({"ip": ["abc.def.ghi.jkl"]})
+        schema = Schema({"ip": ar.IPv4()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_null_allowed_by_default(self):
+        frame = _frame({"ip": [None, "10.0.0.1"]})
+        schema = Schema({"ip": ar.IPv4()})
+        assert validate(frame, schema).passed
+
+    def test_null_rejected_when_not_nullable(self):
+        frame = _frame({"ip": [None, "10.0.0.1"]})
+        schema = Schema({"ip": ar.IPv4(nullable=False)})
+        result = validate(frame, schema)
+        assert not result.passed
+        assert any(i.rule == "nullable" for i in result.issues)
+
+    def test_duplicates_rejected_when_unique(self):
+        frame = _frame({"ip": ["10.0.0.1", "10.0.0.1"]})
+        schema = Schema({"ip": ar.IPv4(unique=True)})
+        result = validate(frame, schema)
+        assert not result.passed
+        assert any(i.rule == "unique" for i in result.issues)
+
+    def test_severity_warning_propagates(self):
+        frame = _frame({"ip": ["999.999.999.999"]})
+        schema = Schema({"ip": ar.IPv4(severity="warning")})
+        result = validate(frame, schema)
+        assert result.passed
+        assert any(i.severity == "warning" for i in result.issues)
+
+    def test_boundary_values(self):
+        """Exact boundary octets 0 and 255 are valid; 256 is not."""
+        frame = _frame({"ip": ["0.0.0.0", "255.255.255.255"]})
+        schema = Schema({"ip": ar.IPv4()})
+        assert validate(frame, schema).passed
+
+    def test_leading_zero_first_octet(self):
+        """00.0.0.0 has a leading zero — must fail."""
+        frame = _frame({"ip": ["00.0.0.0"]})
+        schema = Schema({"ip": ar.IPv4()})
+        assert not validate(frame, schema).passed
+
+
+# ===========================================================================
+# 5.  End-to-end validate() – MACAddress
+# ===========================================================================
+
+
+class TestMACAddressValidation:
+    def test_colon_separated_uppercase_passes(self):
+        frame = _frame({"mac": ["AA:BB:CC:DD:EE:FF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_colon_separated_lowercase_passes(self):
+        frame = _frame({"mac": ["aa:bb:cc:dd:ee:ff"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_hyphen_separated_uppercase_passes(self):
+        frame = _frame({"mac": ["AA-BB-CC-DD-EE-FF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_hyphen_separated_lowercase_passes(self):
+        frame = _frame({"mac": ["aa-bb-cc-dd-ee-ff"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_broadcast_mac_passes(self):
+        frame = _frame({"mac": ["FF:FF:FF:FF:FF:FF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_zero_mac_passes(self):
+        frame = _frame({"mac": ["00:00:00:00:00:00"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_five_octets_fails(self):
+        frame = _frame({"mac": ["AA:BB:CC:DD:EE"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_seven_octets_fails(self):
+        frame = _frame({"mac": ["AA:BB:CC:DD:EE:FF:00"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_non_hex_octet_fails(self):
+        frame = _frame({"mac": ["GG:BB:CC:DD:EE:FF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_no_separator_fails(self):
+        frame = _frame({"mac": ["AABBCCDDEEFF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_mixed_separators_fail(self):
+        """Mixing colons and hyphens is not valid."""
+        frame = _frame({"mac": ["AA:BB-CC:DD:EE:FF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_cisco_dot_format_fails(self):
+        """Dot-delimited (Cisco) format is explicitly unsupported."""
+        frame = _frame({"mac": ["AABB.CCDD.EEFF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        result = validate(frame, schema)
+        assert not result.passed
+
+    def test_null_allowed_by_default(self):
+        frame = _frame({"mac": [None, "AA:BB:CC:DD:EE:FF"]})
+        schema = Schema({"mac": ar.MACAddress()})
+        assert validate(frame, schema).passed
+
+    def test_null_rejected_when_not_nullable(self):
+        frame = _frame({"mac": [None, "AA:BB:CC:DD:EE:FF"]})
+        schema = Schema({"mac": ar.MACAddress(nullable=False)})
+        result = validate(frame, schema)
+        assert not result.passed
+        assert any(i.rule == "nullable" for i in result.issues)
+
+    def test_duplicates_rejected_when_unique(self):
+        frame = _frame({"mac": ["AA:BB:CC:DD:EE:FF", "AA:BB:CC:DD:EE:FF"]})
+        schema = Schema({"mac": ar.MACAddress(unique=True)})
+        result = validate(frame, schema)
+        assert not result.passed
+        assert any(i.rule == "unique" for i in result.issues)
+
+    def test_severity_warning_propagates(self):
+        frame = _frame({"mac": ["not-a-mac"]})
+        schema = Schema({"mac": ar.MACAddress(severity="warning")})
+        result = validate(frame, schema)
+        assert result.passed
+        assert any(i.severity == "warning" for i in result.issues)
+
+
+# ===========================================================================
+# 6.  Schema JSON round-trip (to_json / from_json)
+# ===========================================================================
+
+
+class TestSemanticValidatorJSONRoundTrip:
+    """Verify that UUID, IPv4, and MACAddress survive Schema serialization."""
+
+    @pytest.mark.parametrize(
+        "factory,semantic",
+        [
+            (ar.UUID, "uuid"),
+            (ar.IPv4, "ipv4"),
+            (ar.MACAddress, "mac_address"),
+        ],
+    )
+    def test_round_trip_preserves_semantic(self, factory, semantic):
+        original = Schema({"col": factory(nullable=False, unique=True)})
+        restored = Schema.from_json(original.to_json())
+        f = restored.fields["col"]
+        assert f.semantic == semantic
+        assert f.nullable is False
+        assert f.unique is True
+
+    @pytest.mark.parametrize(
+        "factory,semantic",
+        [
+            (ar.UUID, "uuid"),
+            (ar.IPv4, "ipv4"),
+            (ar.MACAddress, "mac_address"),
+        ],
+    )
+    def test_restored_schema_validates_correctly(self, factory, semantic):
+        """A schema reloaded from JSON must still reject invalid values."""
+        original = Schema({"col": factory()})
+        restored = Schema.from_json(original.to_json())
+
+        invalid_values = {
+            "uuid": "not-a-uuid",
+            "ipv4": "999.999.999.999",
+            "mac_address": "ZZ:ZZ:ZZ:ZZ:ZZ:ZZ",
+        }
+        frame = _frame({"col": [invalid_values[semantic]]})
+        result = validate(frame, restored)
+        assert not result.passed
+
+
+class TestChoice:
+    def test_choice_valid_values_pass(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive", "pending"])})
+        frame = ar.from_dict({"status": ["active", "pending", "inactive"]})
+        result = schema.validate(frame)
+        assert result.passed
+
+    def test_choice_invalid_value_fails(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"])})
+        frame = ar.from_dict({"status": ["active", "unknown"]})
+        result = schema.validate(frame)
+        assert not result.passed
+        assert any(issue.rule == "allowed" for issue in result.issues)
+
+    def test_choice_reports_correct_row_index(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"])})
+        frame = ar.from_dict({"status": ["active", "bogus", "inactive"]})
+        result = schema.validate(frame)
+        bad_issue = next(i for i in result.issues if i.rule == "allowed")
+        assert bad_issue.row_index == 2  # 1-indexed, second row
+
+    def test_choice_empty_allowed_raises_value_error(self):
+        with pytest.raises(ValueError, match="allowed must contain at least one value"):
+            ar.Choice([])
+
+    def test_choice_bare_string_raises_type_error(self):
+        with pytest.raises(TypeError, match="not a bare string"):
+            ar.Choice("active")
+
+    def test_choice_invalid_container_type_raises_type_error(self):
+        with pytest.raises(TypeError):
+            ar.Choice(123)
+
+    def test_choice_accepts_set_list_tuple(self):
+        for allowed in (["a", "b"], ("a", "b"), {"a", "b"}):
+            field = ar.Choice(allowed)
+            assert field.allowed == {"a", "b"}
+
+    def test_choice_nullable_default_allows_nulls(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"])})
+        frame = ar.from_dict({"status": ["active", None]})
+        result = schema.validate(frame)
+        assert result.passed
+
+    def test_choice_non_nullable_rejects_nulls(self):
+        schema = ar.Schema(
+            {"status": ar.Choice(["active", "inactive"], nullable=False)}
+        )
+        frame = ar.from_dict({"status": ["active", None]})
+        result = schema.validate(frame)
+        assert not result.passed
+        assert any(issue.rule == "nullable" for issue in result.issues)
+
+    def test_choice_unique_flag_detects_duplicates(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"], unique=True)})
+        frame = ar.from_dict({"status": ["active", "active"]})
+        result = schema.validate(frame)
+        assert not result.passed
+        assert any(issue.rule == "unique" for issue in result.issues)
+
+    def test_choice_severity_warning_does_not_fail_validation(self):
+        schema = ar.Schema(
+            {"status": ar.Choice(["active", "inactive"], severity="warning")}
+        )
+        frame = ar.from_dict({"status": ["active", "unknown"]})
+        result = schema.validate(frame)
+        assert result.passed  # only warnings, no errors
+        assert any(issue.severity == "warning" for issue in result.issues)
+
+    def test_choice_all_values_valid_zero_issues(self):
+        schema = ar.Schema({"status": ar.Choice(["x", "y", "z"])})
+        frame = ar.from_dict({"status": ["x", "y", "z", "x"]})
+        result = schema.validate(frame)
+        assert result.issue_count == 0
