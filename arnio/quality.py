@@ -205,9 +205,11 @@ class DataQualityReport:
             lines.append("## Columns")
             lines.append("")
 
-            lines.append("| Name | Dtype | Semantic Type | Nulls | Unique | Warnings |")
+            lines.append(
+                "| Name | Dtype | Semantic Type | Nulls | Unique Count | Unique Ratio | Warnings |"
+            )
 
-            lines.append("|---|---|---|---|---|---|")
+            lines.append("|---|---|---|---|---|---|---|")
 
             for name in sorted(self.columns):
                 column = self.columns[name]
@@ -220,6 +222,7 @@ class DataQualityReport:
                     f"| {column.semantic_type} "
                     f"| {column.null_count} "
                     f"| {column.unique_count} "
+                    f"| {column.unique_ratio:.2%} "
                     f"| {warnings} |"
                 )
 
