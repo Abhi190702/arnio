@@ -245,8 +245,14 @@ PYBIND11_MODULE(_arnio_cpp, m) {
           py::arg("frame"),
           py::arg("subset") = std::nullopt);
 
-    m.def("normalize_case", &normalize_case, py::arg("frame"), py::arg("subset") = std::nullopt,
-          py::arg("case_type") = "lower");
+    m.def(
+        "normalize_case",
+        [](const Frame& frame, const std::optional<std::vector<std::string>>& subset,
+           const std::string& case_type) {
+            py::gil_scoped_release release;
+            return normalize_case(frame, subset, case_type);
+        },
+        py::arg("frame"), py::arg("subset") = std::nullopt, py::arg("case_type") = "lower");
 
     m.def("rename_columns", &rename_columns, py::arg("frame"), py::arg("mapping"));
 
