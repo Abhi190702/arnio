@@ -6,7 +6,6 @@ Data cleaning functions.
 from __future__ import annotations
 
 from typing import Any
-from unittest import result
 
 from ._core import (
     _cast_types,
@@ -14,9 +13,9 @@ from ._core import (
     _drop_nulls,
     _fill_nulls,
     _normalize_case,
+    _remove_control_characters,
     _rename_columns,
     _strip_whitespace,
-    _remove_control_characters,
 )
 from .exceptions import TypeCastError
 from .frame import ArFrame
@@ -208,7 +207,6 @@ def remove_control_characters(
     """
     result = _remove_control_characters(frame._frame, subset=subset)
     return ArFrame(result)
-        
 
 
 def normalize_case(

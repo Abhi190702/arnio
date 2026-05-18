@@ -20,9 +20,9 @@ from .cleaning import (
     fill_nulls,
     filter_rows,
     normalize_case,
+    remove_control_characters,
     rename_columns,
     strip_whitespace,
-    remove_control_characters,
 )
 from .convert import from_pandas, to_pandas
 from .exceptions import ArnioError, CsvReadError, TypeCastError, UnknownStepError
