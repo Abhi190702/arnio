@@ -1,9 +1,4 @@
 
-    """
-Reproducible benchmark: arnio vs pandas
-Run: python benchmarks/benchmark_vs_pandas.py
-"""
-
 import argparse
 import json
 import os
