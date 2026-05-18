@@ -10,8 +10,7 @@ from arnio.quality import _duplicate_count
 
 
 import pytest
-
-import arnio as ar
+from arnio.quality import _duplicate_count
 
 
 
@@ -128,6 +127,26 @@ def test_profile_sample_size_validation(tmp_path):
         assert False, "Expected TypeError"
     except TypeError as exc:
         assert "sample_size must be an integer" in str(exc)
+
+def test_duplicate_count_rejects_string_subset():
+    df = pd.DataFrame([{"id": 1, "name": "A"}])
+
+    with pytest.raises(TypeError, match="subset must be a list of column names"):
+        _duplicate_count(df, subset="id")
+
+
+def test_duplicate_count_rejects_non_list_subset():
+    df = pd.DataFrame([{"id": 1, "name": "A"}])
+
+    with pytest.raises(TypeError, match="subset must be a list of column names or None"):
+        _duplicate_count(df, subset=123)
+
+
+def test_duplicate_count_rejects_non_string_subset_items():
+    df = pd.DataFrame([{"id": 1, "name": "A"}])
+
+    with pytest.raises(TypeError, match="subset must contain only strings"):
+        _duplicate_count(df, subset=["id", 1])
 
 
 
@@ -293,7 +312,7 @@ def test_duplicate_count_for_full_rows():
         ]
     )
 
-    assert ar.duplicate_count(df) == 1
+    assert _duplicate_count(df) == 1
 
 
 
@@ -343,4 +362,3 @@ def test_duplicate_count_invalid_column():
 
     with pytest.raises(ValueError, match="Unknown columns"):
         _duplicate_count(df, subset=["email"])
-import pytest

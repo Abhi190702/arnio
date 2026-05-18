@@ -156,8 +156,14 @@ def _duplicate_count(df : pd.DataFrame, subset : list[str] | None = None ) -> in
     duplicated_mask = df.duplicated(subset=subset,keep="first")
     return int(duplicated_mask.sum())
 
-def duplicate_count(df: pd.DataFrame, subset: list[str] | None = None) -> int:
+def _duplicate_count(df: pd.DataFrame, subset: list[str] | None = None) -> int:
     if subset is not None:
+        if isinstance(subset, str):
+            raise TypeError("subset must be a list of column names, not a string")
+        if not isinstance(subset, list):
+            raise TypeError("subset must be a list of column names or None")
+        if not all(isinstance(col, str) for col in subset):
+            raise TypeError("subset must contain only strings")
         missing_columns = [col for col in subset if col not in df.columns]
         if missing_columns:
             raise ValueError(f"Unknown columns for duplicate check: {missing_columns}")
@@ -199,7 +205,6 @@ def profile(frame: ArFrame, *, sample_size: int = 5) -> DataQualityReport:
 
     duplicate_rows = _duplicate_count(df)
 
-    duplicate_rows = duplicate_count(df)
 
     duplicate_ratio = _ratio(duplicate_rows, row_count)
 
