@@ -886,3 +886,48 @@ def test_replace_values_direct_pandas_does_not_mutate_input():
     assert list(df["status"]) == ["active", "inactive"]
     # output should be replaced
     assert list(out["status"]) == ["A", "inactive"]
+def test_register_step_validates_callable():
+    """Test that register_step raises TypeError immediately for non-callables."""
+    import pytest
+    from arnio.pipeline import register_step
+
+    with pytest.raises(TypeError, match="expected a callable"):
+        register_step("bad_step_integer", 123)
+
+
+def test_register_step_validates_name():
+    """Test that register_step raises ValueError for invalid names."""
+    import pytest
+    from arnio.pipeline import register_step
+
+    with pytest.raises(ValueError, match="Expected a non-empty string"):
+        register_step("", lambda df: df)
+
+    with pytest.raises(ValueError, match="Expected a non-empty string"):
+        register_step("   ", lambda df: df)
+
+    with pytest.raises(ValueError, match="Expected a non-empty string"):
+        register_step(None, lambda df: df)
+
+
+def test_register_step_execution_flow():
+    """Test that a valid registered custom step executes cleanly in the pipeline."""
+    import pandas as pd
+    from arnio.pipeline import register_step, pipeline
+    from arnio.convert import from_pandas, to_pandas
+
+    def custom_add_col(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["verified"] = True
+        return df
+
+    register_step("custom_add_col_step", custom_add_col)
+
+    initial_df = pd.DataFrame({"id": [1, 2]})
+    frame = from_pandas(initial_df)
+    
+    result_frame = pipeline(frame, [("custom_add_col_step",)])
+    
+    final_df = to_pandas(result_frame)
+    assert "verified" in final_df.columns
+    assert final_df["verified"].all() == True

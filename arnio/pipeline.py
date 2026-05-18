@@ -58,24 +58,23 @@ def register_step(name: str, fn: Callable):
     ...     return df.dropna(thresh=threshold)
     >>> ar.register_step("custom_clean", custom_clean)
     """
-    # 1. Validate the name
+    # 1. Validate the step name
     if not isinstance(name, str) or not name.strip():
         raise ValueError(
-            f"Invalid pipeline step name: {name!r}. "
-            "Expected a non-empty string."
+            f"Invalid pipeline step name: {name!r}. Expected a non-empty string."
         )
 
-    # 2. Validate the callable (Fix for Issue #721)
+    # 2. Validate that the object is a callable (Fix for Issue #721)
     if not callable(fn):
         raise TypeError(
-            f"Could not register custom step '{name}': expected a callable "
-            f"(function or class), but got {type(fn).__name__!r}."
+            f"Could not register custom step {name!r}: "
+            f"expected a callable (function or class), but got {type(fn).__name__!r}."
         )
 
     with _REGISTRY_LOCK:
         _PYTHON_STEP_REGISTRY[name] = fn
 
-
+        
 def _validate_pipeline_steps(
     steps: list[tuple],
     python_step_registry: dict[str, Callable],
