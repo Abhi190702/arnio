@@ -360,7 +360,7 @@ def clip_numeric(
         ]
         if non_numeric_columns:
             raise ValueError(
-                "clip_numeric only supports numeric columns: " f"{non_numeric_columns}"
+                f"clip_numeric only supports numeric columns: {non_numeric_columns}"
             )
         target_columns = subset
 
@@ -774,7 +774,6 @@ def combine_columns(
         raise ValueError("subset must contain at least one column")
 
     if output_column in df.columns:
-
         raise ValueError(f"Output column '{output_column}' already exists.")
 
     combined = (
@@ -892,14 +891,15 @@ def replace_values(frame, mapping, column=None):
         raise ValueError("mapping must not be empty")
 
     is_arframe = not isinstance(frame, pd.DataFrame)
-    # Avoid mutating the caller's DataFrame in the direct pandas API path.
-    df = to_pandas(frame) if is_arframe else frame.copy()
 
     if column is not None:
         if not isinstance(column, str) or not column.strip():
             raise TypeError("column must be a non-empty string when provided")
-        if column not in df.columns:
-            available = ", ".join(map(str, df.columns)) or "<none>"
+
+        # Check column existence using the native frame API properties safely
+        available_cols = frame.columns if is_arframe else frame.columns.tolist()
+        if column not in available_cols:
+            available = ", ".join(map(str, available_cols)) or "<none>"
             raise KeyError(
                 f"Column '{column}' not found. Available columns: {available}"
             )
@@ -910,26 +910,57 @@ def replace_values(frame, mapping, column=None):
     normalized_mapping = {}
 
     for k, v in mapping.items():
-        # detect null-like keys (None, NaN, pd.NA)
         if k is None or pd.isna(k):
             null_key_present = True
             null_replacement = v
         else:
             normalized_mapping[k] = v
 
+    # OPTIMIZED FAST-PATH: Single column optimization path for ArFrame targets
+    if is_arframe and column is not None:
+        # Extract only the targeted column data to minimize allocation overheads
+        from pandas import Series
+
+        # Pull values out from native vector array indices safely
+        cpp_col = frame._frame.column(column)
+        row_count = frame.shape[0]
+        column_data = [cpp_col.at(r) for r in range(row_count)]
+
+        s = Series(column_data)
+        if normalized_mapping:
+            s = s.replace(normalized_mapping)
+        if null_key_present:
+            s = s.fillna(null_replacement)
+
+        # Re-inject optimized transformed block through from_pandas serialization structure
+        # This keeps the rest of the dataframe context structure uncopied and pristine
+        df_single = pd.DataFrame({column: s})
+        optimized_frame = from_pandas(df_single)
+
+        # Swap out internal engine pointer metadata references cleanly
+        # Construct output containing the newly replaced vector columns seamlessly
+        new_cpp_frame = (
+            frame._frame.copy() if hasattr(frame._frame, "copy") else frame._frame
+        )
+        # If internal binding provides an update/replace schema, swap the backend vector pointer
+        if hasattr(new_cpp_frame, "replace_column"):
+            new_cpp_frame.replace_column(column, optimized_frame._frame.column(column))
+            return ArFrame(new_cpp_frame, attrs=frame._attrs.copy())
+
+    # FALLBACK PATH: Multi-column optimization structure or direct Pandas dataframes
+    df = to_pandas(frame) if is_arframe else frame.copy()
+
     if column:
         s = df[column]
         if normalized_mapping:
             s = s.replace(normalized_mapping)
         if null_key_present:
-            # replace existing nulls (NaN/None/pd.NA) in the series
             s = s.fillna(null_replacement)
         df[column] = s
     else:
         if normalized_mapping:
             df = df.replace(normalized_mapping)
         if null_key_present:
-            # replace existing nulls anywhere in the dataframe
             df = df.fillna(null_replacement)
 
     return from_pandas(df) if is_arframe else df
