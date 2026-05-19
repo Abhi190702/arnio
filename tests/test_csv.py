@@ -535,6 +535,59 @@ class TestScanCsv:
 
         assert list(schema.keys()) == list(frame.columns)
 
+    def test_scan_csv_headers_only_no_data(self, tmp_path):
+        csv_path = tmp_path / "headers_only.csv"
+        csv_path.write_text("name,age,score\n")
+
+        schema = ar.scan_csv(str(csv_path))
+        assert set(schema.keys()) == {"name", "age", "score"}
+        assert all(v == "string" for v in schema.values())
+
+    def test_scan_csv_all_null_column(self, tmp_path):
+        csv_path = tmp_path / "all_null.csv"
+        csv_path.write_text("id,value,comment\n1,,\n2,,\n3,,\n")
+
+        schema = ar.scan_csv(str(csv_path))
+        assert schema["id"] == "int64"
+        assert schema["value"] == "string"
+        assert schema["comment"] == "string"
+
+    def test_scan_csv_mixed_types_infers_string(self, tmp_path):
+        csv_path = tmp_path / "mixed_types.csv"
+        csv_path.write_text("id,value\n1,100\n2,hello\n3,200\n")
+
+        schema = ar.scan_csv(str(csv_path))
+        assert schema["id"] == "int64"
+        assert schema["value"] == "string"
+
+    def test_scan_csv_sample_size_affects_type_inference(self, tmp_path):
+        csv_path = tmp_path / "sample_type.csv"
+        csv_path.write_text("id,value\n1,10\n2,20\n3,30\n4,hello\n")
+
+        schema_early = ar.scan_csv(str(csv_path), sample_size=2)
+        assert schema_early["value"] == "int64"
+
+        schema_full = ar.scan_csv(str(csv_path), sample_size=10)
+        assert schema_full["value"] == "string"
+
+    def test_scan_csv_single_row(self, tmp_path):
+        csv_path = tmp_path / "single_row.csv"
+        csv_path.write_text("id,name,active,score\n1,Alice,true,95.5\n")
+
+        schema = ar.scan_csv(str(csv_path))
+        assert schema["id"] == "int64"
+        assert schema["name"] == "string"
+        assert schema["active"] == "bool"
+        assert schema["score"] == "float64"
+
+    def test_scan_csv_single_column(self, tmp_path):
+        csv_path = tmp_path / "single_column.csv"
+        csv_path.write_text("id\n1\n2\n3\n")
+
+        schema = ar.scan_csv(str(csv_path))
+        assert len(schema) == 1
+        assert schema["id"] == "int64"
+
 
 # --- Issue #115: quoted multiline round-trip across line endings ---
 
@@ -600,3 +653,29 @@ def test_scan_csv_type_evidence_after_limit(tmp_path):
     csv_file.write_bytes(csv_content.encode("latin-1"))
     schema = ar.scan_csv(str(csv_file), encoding="latin-1")
     assert schema["value"] == "int64"
+
+
+def test_csv_scan_then_clean_cast_fails_on_late_string(self, tmp_path):
+    csv_path = tmp_path / "late_string.csv"
+    csv_path.write_text("id,value\n" "1,10\n" "2,20\n" "3,30\n" "4,not_a_number\n")
+
+    schema = ar.scan_csv(str(csv_path), sample_size=3)
+    assert schema["value"] == "int64"
+
+    frame = ar.read_csv(str(csv_path))
+
+    with pytest.raises(ar.TypeCastError):
+        ar.clean(frame, cast_mapping=schema)
+
+
+def test_csv_scan_then_clean_cast_succeeds_with_full_sample(self, tmp_path):
+    csv_path = tmp_path / "full_sample.csv"
+    csv_path.write_text("id,value\n" "1,10\n" "2,20\n" "3,30\n" "4,not_a_number\n")
+
+    schema = ar.scan_csv(str(csv_path), sample_size=None)
+    assert schema["value"] == "string"
+
+    frame = ar.read_csv(str(csv_path))
+    result = ar.clean(frame, cast_mapping=schema)
+
+    assert result.dtypes["value"] == "string"
