@@ -140,14 +140,21 @@ class DataQualityReport:
         )
 
 
-def duplicate_count(df: pd.DataFrame, subset: list[str] | None = None) -> int:
-    if subset is not None:
-        missing_columns = [col for col in subset if col not in df.columns]
-        if missing_columns:
-            raise ValueError(f"Unknown columns for duplicate check: {missing_columns}")
+def _duplicate_count(df : pd.DataFrame, subset : list[str] | None = None ) -> int:
+    if subset is not None :
+        if isinstance(subset, str):
+            raise TypeError("subset must be a list of column names, not a string")
+        if not isinstance(subset, list):
+            raise TypeError("subset must be a list of column names or None")
+        if not all(isinstance(col, str) for col in subset):
+            raise TypeError("subset must contain only strings")
+        
+        missing_col = [col for col in subset if col not in df.columns]
+        if missing_col :
+            raise ValueError(f"Unknown columns for duplicate check: {missing_col}")
     if df.empty:
         return 0
-    duplicated_mask = df.duplicated(subset=subset, keep="first")
+    duplicated_mask = df.duplicated(subset=subset,keep="first")
     return int(duplicated_mask.sum())
 
 
@@ -504,22 +511,6 @@ def _top_values(
     ]
 
 
-def _duplicate_count(df : pd.DataFrame, subset : list[str] | None = None ) -> int:
-    if subset is not None :
-        if isinstance(subset, str):
-            raise TypeError("subset must be a list of column names, not a string")
-        if not isinstance(subset, list):
-            raise TypeError("subset must be a list of column names or None")
-        if not all(isinstance(col, str) for col in subset):
-            raise TypeError("subset must contain only strings")
-        
-        missing_col = [col for col in subset if col not in df.columns]
-        if missing_col :
-            raise ValueError(f"Unknown columns for duplicate check: {missing_col}")
-    if df.empty:
-        return 0
-    duplicated_mask = df.duplicated(subset=subset,keep="first")
-    return int(duplicated_mask.sum())
 
 
 _EMAIL_PATTERN = r"[^@\s]+@[^@\s]+\.[^@\s]+"

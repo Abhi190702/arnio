@@ -1,5 +1,6 @@
 """Tests for data quality profiling and smart cleaning."""
 
+<<<<<<< HEAD
 import arnio as ar
 
 import pandas as pd
@@ -7,6 +8,13 @@ import pandas as pd
 import pytest
 from arnio.quality import _duplicate_count
 
+=======
+import pandas as pd
+import pytest
+
+import arnio as ar
+
+>>>>>>> 4cd7d1d (updated subset-duplicate counting)
 
 def test_profile_reports_quality_signals(tmp_path):
     path = tmp_path / "quality.csv"
@@ -122,6 +130,7 @@ def test_profile_sample_size_validation(tmp_path):
     except TypeError as exc:
         assert "sample_size must be an integer" in str(exc)
 
+<<<<<<< HEAD
 def test_duplicate_count_rejects_string_subset():
     df = pd.DataFrame([{"id": 1, "name": "A"}])
 
@@ -297,6 +306,9 @@ def test_duplicate_count_for_full_rows():
     assert _duplicate_count(df) == 1
 
 
+=======
+
+>>>>>>> 4cd7d1d (updated subset-duplicate counting)
 def test_duplicate_count_for_full_rows():
     df = pd.DataFrame(
         [
@@ -306,8 +318,12 @@ def test_duplicate_count_for_full_rows():
         ]
     )
 
+<<<<<<< HEAD
     assert _duplicate_count(df) == 1
 
+=======
+    assert ar.duplicate_count(df) == 1
+>>>>>>> 4cd7d1d (updated subset-duplicate counting)
 
 
 def test_duplicate_count_for_single_column():
@@ -318,10 +334,15 @@ def test_duplicate_count_for_single_column():
             {"id": 2, "name": "C"},
         ]
     )
+<<<<<<< HEAD
 
 
     assert _duplicate_count(df, subset=["id"]) == 1
 
+=======
+
+    assert ar.duplicate_count(df, subset=["id"]) == 1
+>>>>>>> 4cd7d1d (updated subset-duplicate counting)
 
 
 def test_duplicate_count_for_multiple_columns():
@@ -333,6 +354,10 @@ def test_duplicate_count_for_multiple_columns():
         ]
     )
 
+<<<<<<< HEAD
+=======
+    assert ar.duplicate_count(df, subset=["id", "email"]) == 1
+>>>>>>> 4cd7d1d (updated subset-duplicate counting)
 
     assert _duplicate_count(df, subset=["id", "email"]) == 1
 
@@ -355,6 +380,7 @@ def test_duplicate_count_invalid_column():
     )
 
     with pytest.raises(ValueError, match="Unknown columns"):
+<<<<<<< HEAD
         _duplicate_count(df, subset=["email"])
 
 
@@ -502,3 +528,6 @@ def test_identifier_numeric_cast_prevention():
     assert list(result["id"]) == ["001", "002", "003"]
     assert list(result["customer_id"]) == ["00123", "00456", "00789"]
     assert list(result["zip_code"]) == ["01234", "02345", "03456"]
+=======
+        ar.duplicate_count(df, subset=["email"])
+>>>>>>> 4cd7d1d (updated subset-duplicate counting)
