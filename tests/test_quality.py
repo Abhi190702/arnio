@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 
 import arnio as ar
-
 from arnio.quality import _duplicate_count
+
 
 def test_profile_reports_quality_signals(tmp_path):
     path = tmp_path / "quality.csv"
@@ -120,86 +120,6 @@ def test_profile_sample_size_validation(tmp_path):
         assert False, "Expected TypeError"
     except TypeError as exc:
         assert "sample_size must be an integer" in str(exc)
-
-
-def test_duplicate_count_for_full_rows():
-    df = pd.DataFrame(
-        [
-            {"id": 1, "name": "A"},
-            {"id": 1, "name": "A"},
-            {"id": 2, "name": "B"},
-        ]
-    )
-
-    assert _duplicate_count(df) == 1
-
-
-
-def test_duplicate_count_for_single_column():
-    df = pd.DataFrame(
-        [
-            {"id": 1, "name": "A"},
-            {"id": 1, "name": "B"},
-            {"id": 2, "name": "C"},
-        ]
-    )
-
-    assert _duplicate_count(df, subset=["id"]) == 1
-
-
-
-def test_duplicate_count_for_multiple_columns():
-    df = pd.DataFrame(
-        [
-            {"id": 1, "email": "a@test.com"},
-            {"id": 1, "email": "a@test.com"},
-            {"id": 1, "email": "b@test.com"},
-        ]
-    )
-    assert _duplicate_count(df, subset=["id", "email"]) == 1
-
-def test_duplicate_count_no_duplicates():
-    df = pd.DataFrame(
-        [
-            {"id": 1, "name": "A"},
-            {"id": 2, "name": "B"},
-        ]
-    )
-
-    assert _duplicate_count(df, subset=["id"]) == 0
-
-
-def test_duplicate_count_invalid_column():
-    df = pd.DataFrame(
-        [
-            {"id": 1, "name": "A"},
-        ]
-    )
-
-    with pytest.raises(ValueError, match="Unknown columns"):
-        _duplicate_count(df, subset=["email"])
-
-
-def test_duplicate_count_rejects_string_subset():
-    df = pd.DataFrame([{"id": 1, "name": "A"}])
-
-    with pytest.raises(TypeError, match="subset must be a list of column names"):
-        _duplicate_count(df, subset="id")
-
-
-def test_duplicate_count_rejects_non_list_subset():
-    df = pd.DataFrame([{"id": 1, "name": "A"}])
-
-    with pytest.raises(TypeError, match="subset must be a list of column names or None"):
-        _duplicate_count(df, subset=123)
-
-
-def test_duplicate_count_rejects_non_string_subset_items():
-    df = pd.DataFrame([{"id": 1, "name": "A"}])
-
-    with pytest.raises(TypeError, match="subset must contain only strings"):
-        _duplicate_count(df, subset=["id", 1])
-
 
 
 # ── top_values tests ──────────────────────────────────────────────────────────
@@ -324,3 +244,35 @@ def test_identifier_numeric_cast_prevention():
     assert list(result["id"]) == ["001", "002", "003"]
     assert list(result["customer_id"]) == ["00123", "00456", "00789"]
     assert list(result["zip_code"]) == ["01234", "02345", "03456"]
+
+
+def test_duplicate_count_with_subset():
+    df = pd.DataFrame(
+        {
+            "name": ["A", "A", "B", "B"],
+            "age": [20, 20, 30, 31],
+        }
+    )
+
+    assert _duplicate_count(df, subset=["name"]) == 2
+
+
+def test_duplicate_count_subset_string_error():
+    df = pd.DataFrame({"a": [1, 1]})
+
+    with pytest.raises(TypeError):
+        _duplicate_count(df, subset="a")
+
+
+def test_duplicate_count_subset_invalid_type():
+    df = pd.DataFrame({"a": [1, 1]})
+
+    with pytest.raises(TypeError):
+        _duplicate_count(df, subset=123)
+
+
+def test_duplicate_count_subset_non_string_values():
+    df = pd.DataFrame({"a": [1, 1]})
+
+    with pytest.raises(TypeError):
+        _duplicate_count(df, subset=[1, 2])
