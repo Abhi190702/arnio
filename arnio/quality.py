@@ -180,9 +180,7 @@ def profile(frame: ArFrame, *, sample_size: int = 5) -> DataQualityReport:
 
     df = to_pandas(frame)
     row_count, column_count = frame.shape
-
     duplicate_rows = _duplicate_count(df)
-
     duplicate_ratio = _ratio(duplicate_rows, row_count)
 
     columns = {

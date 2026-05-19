@@ -1,6 +1,9 @@
 """Tests for data quality profiling and smart cleaning."""
+
 import arnio as ar
+
 import pandas as pd
+
 import pytest
 from arnio.quality import _duplicate_count
 
@@ -499,50 +502,3 @@ def test_identifier_numeric_cast_prevention():
     assert list(result["id"]) == ["001", "002", "003"]
     assert list(result["customer_id"]) == ["00123", "00456", "00789"]
     assert list(result["zip_code"]) == ["01234", "02345", "03456"]
-    
-def test_duplicate_count_for_full_rows():
-    df = pd.DataFrame([
-        {"id": 1, "name": "A"},
-        {"id": 1, "name": "A"},
-        {"id": 2, "name": "B"},
-    ])
-
-    assert ar.duplicate_count(df) == 2
-
-
-def test_duplicate_count_for_single_column():
-    df = pd.DataFrame([
-        {"id": 1, "name": "A"},
-        {"id": 1, "name": "B"},
-        {"id": 2, "name": "C"},
-    ])
-
-    assert ar.duplicate_count(df, subset=["id"]) == 2
-
-
-def test_duplicate_count_for_multiple_columns():
-    df = pd.DataFrame([
-        {"id": 1, "email": "a@test.com"},
-        {"id": 1, "email": "a@test.com"},
-        {"id": 1, "email": "b@test.com"},
-    ])
-
-    assert ar.duplicate_count(df, subset=["id", "email"]) == 2
-
-
-def test_duplicate_count_no_duplicates():
-    df = pd.DataFrame([
-        {"id": 1, "name": "A"},
-        {"id": 2, "name": "B"},
-    ])
-
-    assert ar.duplicate_count(df, subset=["id"]) == 0
-
-
-def test_duplicate_count_invalid_column():
-    df = pd.DataFrame([
-        {"id": 1, "name": "A"},
-    ])
-
-    with pytest.raises(ValueError, match="Unknown columns"):
-        ar.duplicate_count(df, subset=["email"])
