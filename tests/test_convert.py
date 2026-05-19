@@ -348,6 +348,135 @@ class TestFromPandas:
 
         assert list(result["flag"]) == [True, False, pd.NA]
 
+    def test_dataframe_index_is_dropped(self):
+        """pandas index is not preserved during from_pandas conversion."""
+        df = pd.DataFrame({"a": [1, 2, 3]}, index=["x", "y", "z"])
+        frame = ar.from_pandas(df)
+        result = ar.to_pandas(frame)
+        assert isinstance(result.index, pd.RangeIndex)
+
+    def test_datetime_raises_clear_error(self):
+        df = pd.DataFrame({"created_at": pd.to_datetime(["2021-01-01", "2022-06-15"])})
+        with pytest.raises(TypeError, match="Column 'created_at'"):
+            ar.from_pandas(df)
+
+    def test_timedelta_raises_clear_error(self):
+        df = pd.DataFrame({"duration": pd.to_timedelta(["1 days", "2 days"])})
+        with pytest.raises(TypeError, match="Column 'duration'"):
+            ar.from_pandas(df)
+
+    def test_categorical_raises_clear_error(self):
+        df = pd.DataFrame({"status": pd.Categorical(["active", "inactive", "active"])})
+        with pytest.raises(TypeError, match="Column 'status'"):
+            ar.from_pandas(df)
+
+    def test_complex_raises_clear_error(self):
+        df = pd.DataFrame({"signal": np.array([1 + 2j, 3 + 4j, 5 + 6j])})
+        with pytest.raises(TypeError, match="Column 'signal'"):
+            ar.from_pandas(df)
+
+    def test_error_message_contains_fix_hint_datetime(self):
+        df = pd.DataFrame({"ts": pd.to_datetime(["2023-01-01"])})
+        with pytest.raises(TypeError, match="Fix:"):
+            ar.from_pandas(df)
+
+    def test_error_message_contains_fix_hint_timedelta(self):
+        df = pd.DataFrame({"td": pd.to_timedelta(["3 days"])})
+        with pytest.raises(TypeError, match="Fix:"):
+            ar.from_pandas(df)
+
+    def test_error_message_contains_fix_hint_category(self):
+        df = pd.DataFrame({"cat": pd.Categorical(["a", "b"])})
+        with pytest.raises(TypeError, match="Fix:"):
+            ar.from_pandas(df)
+
+    def test_error_message_contains_fix_hint_complex(self):
+        df = pd.DataFrame({"cx": np.array([1 + 1j])})
+        with pytest.raises(TypeError, match="Fix:"):
+            ar.from_pandas(df)
+
+    def test_mixed_valid_and_invalid_raises_on_bad_column(self):
+        df = pd.DataFrame(
+            {
+                "name": ["Alice", "Bob"],
+                "joined": pd.to_datetime(["2020-01-01", "2021-06-01"]),
+            }
+        )
+        with pytest.raises(TypeError, match="Column 'joined'"):
+            ar.from_pandas(df)
+
+    def test_duplicate_single_label_raises(self):
+        df = pd.DataFrame([[1, 2]], columns=["id", "id"])
+        with pytest.raises(ValueError, match="duplicate column labels") as exc_info:
+            ar.from_pandas(df)
+        assert "id" in str(exc_info.value)
+
+    def test_duplicate_multiple_labels_raises(self):
+        df = pd.DataFrame([[1, 2, 3, 4]], columns=["a", "b", "a", "b"])
+        with pytest.raises(ValueError, match="duplicate column labels") as exc_info:
+            ar.from_pandas(df)
+        assert "a" in str(exc_info.value)
+        assert "b" in str(exc_info.value)
+
+    def test_unique_labels_converts_cleanly(self):
+        df = pd.DataFrame({"x": [1], "y": [2]})
+        frame = ar.from_pandas(df)
+        assert frame.columns == ["x", "y"]
+
+    def test_unique_non_string_labels_convert_cleanly(self):
+        df = pd.DataFrame([[1, 2]], columns=[0, 1])
+        frame = ar.from_pandas(df)
+        assert frame.columns == ["0", "1"]
+
+    def test_duplicate_non_string_labels_raises(self):
+        df = pd.DataFrame([[1, 2, 3]], columns=[0, 1, 0])
+        with pytest.raises(ValueError, match="duplicate column labels") as exc_info:
+            ar.from_pandas(df)
+        assert "0" in str(exc_info.value)
+
+    def test_stringified_integer_label_collision_raises(self):
+        df = pd.DataFrame([[1, 2]], columns=[1, "1"])
+        with pytest.raises(ValueError, match="string conversion") as exc_info:
+            ar.from_pandas(df)
+
+        message = str(exc_info.value)
+        assert "'1'" in message
+        assert "1" in message
+
+    def test_stringified_bool_label_collision_raises(self):
+        df = pd.DataFrame([[1, 2]], columns=[True, "True"])
+        with pytest.raises(ValueError, match="string conversion") as exc_info:
+            ar.from_pandas(df)
+
+        message = str(exc_info.value)
+        assert "True" in message
+
+    def test_uint64_overflow_raises_clear_error(self):
+        """UInt64 values outside int64 range raise a clear ValueError."""
+        df = pd.DataFrame({"x": pd.Series([2**63], dtype="UInt64")})
+        with pytest.raises(ValueError, match="outside the signed int64 range") as exc_info:
+            ar.from_pandas(df)
+        assert "x" in str(exc_info.value)
+        assert str(2**63) in str(exc_info.value)
+
+    def test_object_dtype_overflow_raises_clear_error(self):
+        """Object dtype integers outside int64 range raise a clear ValueError."""
+        df = pd.DataFrame({"x": pd.Series([2**63], dtype=object)})
+        with pytest.raises(ValueError, match="outside the signed int64 range") as exc_info:
+            ar.from_pandas(df)
+        assert "x" in str(exc_info.value)
+        assert str(2**63) in str(exc_info.value)
+
+    def test_int64_max_boundary_accepted(self):
+        """2**63 - 1 is the maximum valid int64 value and must be accepted."""
+        df = pd.DataFrame({"x": pd.Series([2**63 - 1], dtype=object)})
+        assert ar.from_pandas(df) is not None
+
+    def test_int64_min_boundary_accepted(self):
+        """-(2**63) is the minimum valid int64 value and must be accepted."""
+        df = pd.DataFrame({"x": pd.Series([-(2**63)], dtype=object)})
+        assert ar.from_pandas(df) is not None
+
 
 class TestAttrsPreservation:
     def test_attrs_roundtrip(self):
