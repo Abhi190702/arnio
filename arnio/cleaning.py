@@ -1220,7 +1220,6 @@ def replace_values(frame, mapping, column=None):
         if not isinstance(column, str) or not column.strip():
             raise TypeError("column must be a non-empty string when provided")
 
-        # Check column existence using the native frame API properties safely
         available_cols = frame.columns if is_arframe else frame.columns.tolist()
         if column not in available_cols:
             available = ", ".join(map(str, available_cols)) or "<none>"
@@ -1228,7 +1227,6 @@ def replace_values(frame, mapping, column=None):
                 f"Column '{column}' not found. Available columns: {available}"
             )
 
-    # Normalize mapping and separate null-key handling because NaN != NaN
     null_key_present = False
     null_replacement = None
     normalized_mapping = {}
@@ -1240,45 +1238,6 @@ def replace_values(frame, mapping, column=None):
         else:
             normalized_mapping[k] = v
 
-    # OPTIMIZED FAST-PATH: Single column optimization path for ArFrame targets
-    if is_arframe and column is not None:
-        from pandas import Series
-
-        # FIX: Find the correct index of the requested column natively
-        col_index = frame.columns.index(column)
-        cpp_col = frame._frame.column_by_index(col_index)
-
-        row_count = frame.shape[0]
-        column_data = [cpp_col.at(r) for r in range(row_count)]
-
-        s = Series(column_data)
-
-        # Sync with maintainer's exact null-mask preservation handling
-        original_null_mask = s.isna() if null_key_present else None
-
-        if normalized_mapping:
-            s = s.replace(normalized_mapping)
-
-        if null_key_present:
-            # Apply maintainer's strict updated mask filter structure
-            s = s.where(~original_null_mask, null_replacement)
-
-        # Re-inject optimized transformed block through from_pandas serialization structure
-        df_single = pd.DataFrame({column: s})
-        optimized_frame = from_pandas(df_single)
-
-        # Swap out internal engine pointer metadata references cleanly
-        new_cpp_frame = (
-            frame._frame.copy() if hasattr(frame._frame, "copy") else frame._frame
-        )
-        if hasattr(new_cpp_frame, "replace_column"):
-            # Ensure index alignment maps exactly to the native slot
-            new_cpp_frame.replace_column(
-                column, optimized_frame._frame.column_by_index(0)
-            )
-            return ArFrame(new_cpp_frame, attrs=frame._attrs.copy())
-
-    # FALLBACK PATH: Multi-column optimization structure or direct Pandas dataframes
     df = to_pandas(frame) if is_arframe else frame.copy()
 
     if column:
@@ -1287,18 +1246,13 @@ def replace_values(frame, mapping, column=None):
         if normalized_mapping:
             s = s.replace(normalized_mapping)
         if null_key_present:
-            # Replace only values that were already null before replacement so
-            # null-valued mapping results remain real nulls.
             s = s.where(~original_null_mask, null_replacement)
-
         df[column] = s
     else:
         original_null_mask = df.isna() if null_key_present else None
         if normalized_mapping:
             df = df.replace(normalized_mapping)
         if null_key_present:
-            # Replace only values that were already null before replacement so
-            # null-valued mapping results remain real nulls.
             df = df.where(~original_null_mask, null_replacement)
 
     return from_pandas(df) if is_arframe else df
