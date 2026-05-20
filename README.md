@@ -247,7 +247,6 @@ print(selected.columns)
 
 Arnio supports configuring which strings are treated as null during CSV parsing using the `null_values` parameter in `read_csv` and `scan_csv`. By default, Arnio preserves its existing behavior and treats only empty cells as null. Custom matching is case-insensitive and applies to cell values only (not headers).
 
-
 ```python
 # Default behavior: empty cells are null
 frame = ar.read_csv("data.csv")
@@ -349,6 +348,7 @@ export policy should stay explicit in the application that writes the file.
 ### Pipeline Step Errors
 
 Unknown step names raise `UnknownStepError` before execution begins.
+
 <details>
 <summary><b>📸 Peek at a 100 GB file without loading it</b></summary>
 <br>
