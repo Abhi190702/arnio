@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <iostream>
 #include <cerrno>
 #include <charconv>
 #include <cmath>
@@ -829,11 +830,66 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
     // Read all rows
     size_t row_count = 0;
     while (read_record(file, line)) {
-        if (config_.nrows.has_value() && row_count >= config_.nrows.value()) break;
-        if (line.empty()) continue;
-        raw_data.push_back(parse_line(line));
-        ++row_count;
+        ++record_number;
+
+        if (config.nrows.has_value() && row_count >= config.nrows.value()) {
+            break;
+        }
+
+        if (line.empty()) {
+            continue;
+        }
+
+        auto fields = parser_.parse_line(line);
+
+        if (!config.has_header && !expected_cols.has_value()) {
+            expected_cols = fields.size();
+        }
+
+        if (expected_cols.has_value() && fields.size() > expected_cols.value()) {
+            bool trailing_empty_only = true;
+
+            for (size_t i = expected_cols.value(); i < fields.size(); ++i) {
+                if (!fields[i].empty()) {
+                    trailing_empty_only = false;
+                    break;
+                }
+            }
+
+            if (trailing_empty_only) {
+                fields.resize(expected_cols.value());
+            }
+        }
+
+        if (config.mode == "strict" && expected_cols.has_value()) {
+            validate_row_width(record_number, expected_cols.value(), fields.size());
+        }
+
+        if (expected_cols.has_value()) {
+            while (fields.size() < expected_cols.value()) {
+                fields.push_back("");
+            }
+        }
+
     }
+}
+    if (config.mode == "strict" && expected_cols.has_value()) {
+    validate_row_width(
+        record_number,
+        expected_cols.value(),
+        fields.size()
+    );}
+    if (expected_cols.has_value()) {
+    while (fields.size() < expected_cols.value()) {
+        fields.push_back("");
+    }
+
+    if (fields.size() > expected_cols.value()) {
+        fields.resize(expected_cols.value());
+    }}
+    raw_data.push_back(std::move(fields));
+    ++row_count;
+    
     file.close();
 
     // If no header, generate column names
