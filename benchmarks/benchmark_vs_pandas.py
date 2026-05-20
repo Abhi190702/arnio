@@ -5,6 +5,7 @@ Run: python benchmarks/benchmark_vs_pandas.py
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -19,7 +20,8 @@ import arnio as ar
 
 CSV_FILE = "benchmarks/benchmark_1m.csv"
 WIDE_CSV_FILE = "benchmarks/benchmark_wide.csv"
-RUNS = 3
+DRY_RUN = os.getenv("ARNIO_BENCHMARK_DRY_RUN") == "1"
+RUNS = 1 if DRY_RUN else 3
 
 BASELINE_FILE = "benchmarks/baseline.json"
 REGRESSION_THRESHOLD = 5  # Percent
