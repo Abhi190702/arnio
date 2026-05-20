@@ -1397,7 +1397,19 @@ DataQualityReport(
       "mean": 87.9,
       "min": 85.5,
       "max": 90.0,
-      "warnings": ["contains_nulls"]
+      "warnings": ["contains_nulls"],
+      "histogram": [
+        {"bucket_start": 85.5, "bucket_end": 85.95, "count": 1, "ratio": 0.333333},
+        {"bucket_start": 85.95, "bucket_end": 86.4, "count": 0, "ratio": 0.0},
+        {"bucket_start": 86.4, "bucket_end": 86.85, "count": 0, "ratio": 0.0},
+        {"bucket_start": 86.85, "bucket_end": 87.3, "count": 0, "ratio": 0.0},
+        {"bucket_start": 87.3, "bucket_end": 87.75, "count": 0, "ratio": 0.0},
+        {"bucket_start": 87.75, "bucket_end": 88.2, "count": 0, "ratio": 0.0},
+        {"bucket_start": 88.2, "bucket_end": 88.65, "count": 1, "ratio": 0.333333},
+        {"bucket_start": 88.65, "bucket_end": 89.1, "count": 0, "ratio": 0.0},
+        {"bucket_start": 89.1, "bucket_end": 89.55, "count": 0, "ratio": 0.0},
+        {"bucket_start": 89.55, "bucket_end": 90.0, "count": 1, "ratio": 0.333333}
+      ]
     },
     "city": {
       "dtype": "string",
