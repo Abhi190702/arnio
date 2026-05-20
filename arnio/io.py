@@ -840,7 +840,7 @@ def scan_csv(
     encoding_errors: str = "strict",
     on_bad_lines: str = "error",
     return_metadata: bool = False,
-) -> dict[str, object]:
+) -> dict[str, str] | dict[str, object]:
     """Return schema (column names + inferred types) without loading data.
 
     Parameters
