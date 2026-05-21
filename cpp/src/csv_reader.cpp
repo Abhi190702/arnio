@@ -656,9 +656,11 @@ CellValue CsvParser::parse_value(const std::string& raw, DType dtype) const {
     }
 }
 
-Frame CsvReader::read(const std::string& path) const {
+CsvParseResult CsvReader::read(const std::string& path, const std::string& on_bad_lines) const {
     const CsvConfig& config = parser_.config();
     std::ifstream file(std::filesystem::u8path(path), std::ios::binary);
+    std::vector<BadRow> bad_rows;
+
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open file: " + path);
     }
@@ -708,7 +710,7 @@ Frame CsvReader::read(const std::string& path) const {
     while (record_reader.read(line, line_number)) {
         ++record_number;
 
-        if (config.nrows.has_value() && row_count >= config.nrows.value()) {
+        if (config.nrows.has_value() && (row_count + bad_rows.size()) >= config.nrows.value()) {
             break;
         }
 
@@ -722,10 +724,17 @@ Frame CsvReader::read(const std::string& path) const {
             expected_cols = reusable_fields.size();
         }
 
-        if (expected_cols.has_value()) {
+        if (expected_cols.has_value() && reusable_fields.size() != expected_cols.value()) {
             const size_t expected = expected_cols.value();
-            if (reusable_fields.size() > expected || config.mode == "strict") {
-                validate_row_width(record_number, expected, reusable_fields.size());
+            const size_t actual = reusable_fields.size();
+            // The definition of "bad rows" will remain the same as before for consistency.
+            if (actual > expected || config.mode == "strict") {
+                if (on_bad_lines == "error") {
+                    validate_row_width(record_number, expected, actual);
+                }
+                // on_bad_lines='warn' also skips the row to be consistent with pandas
+                bad_rows.push_back(BadRow{record_number, expected, actual});
+                continue;
             }
         }
 
@@ -822,7 +831,7 @@ Frame CsvReader::read(const std::string& path) const {
         columns.push_back(std::move(col));
     }
 
-    return Frame(std::move(columns));
+    return CsvParseResult{Frame(std::move(columns)), std::move(bad_rows)};
 }
 
 std::vector<std::pair<std::string, std::string>> CsvReader::scan_schema(
@@ -936,7 +945,9 @@ void CsvChunkReader::resolve_col_indices() {
     }
 }
 
-bool CsvChunkReader::read_one_data_row(std::vector<std::string>& fields_out) {
+bool CsvChunkReader::read_one_data_row(std::vector<std::string>& fields_out,
+                                       const std::string& on_bad_lines,
+                                       std::vector<BadRow>* bad_rows_out) {
     const CsvConfig& config = parser_.config();
     std::string line;
     while (record_reader_->read(line)) {
@@ -952,10 +963,17 @@ bool CsvChunkReader::read_one_data_row(std::vector<std::string>& fields_out) {
             expected_cols_ = fields_out.size();
         }
 
-        if (expected_cols_.has_value()) {
+        if (expected_cols_.has_value() && expected_cols_.value() != fields_out.size()) {
             const size_t expected = expected_cols_.value();
-            if (fields_out.size() > expected || config.mode == "strict") {
-                validate_row_width(record_number_, expected, fields_out.size());
+            const size_t actual = fields_out.size();
+            if (actual > expected || config.mode == "strict") {
+                if (on_bad_lines == "error") {
+                    validate_row_width(record_number_, expected, actual);
+                }
+                if (bad_rows_out != nullptr) {
+                    bad_rows_out->push_back(BadRow{record_number_, expected, actual});
+                }
+                continue;
             }
         }
 
@@ -1036,7 +1054,8 @@ void CsvChunkReader::open(const std::string& path) {
     }
 }
 
-std::optional<Frame> CsvChunkReader::next_chunk(size_t chunksize) {
+std::optional<CsvParseResult> CsvChunkReader::next_chunk(size_t chunksize,
+                                                         const std::string& on_bad_lines) {
     if (!opened_) {
         throw std::runtime_error("CsvChunkReader is not open");
     }
@@ -1056,11 +1075,12 @@ std::optional<Frame> CsvChunkReader::next_chunk(size_t chunksize) {
     }
 
     std::vector<std::vector<std::string>> raw_data;
+    std::vector<BadRow> bad_rows;
     raw_data.reserve(limit);
 
-    while (raw_data.size() < limit) {
+    while (raw_data.size() + bad_rows.size() < limit) {
         std::vector<std::string> fields;
-        if (!read_one_data_row(fields)) {
+        if (!read_one_data_row(fields, on_bad_lines, &bad_rows)) {
             break;
         }
         raw_data.push_back(std::move(fields));
@@ -1096,8 +1116,8 @@ std::optional<Frame> CsvChunkReader::next_chunk(size_t chunksize) {
         schema_locked_ = true;
     }
 
-    rows_read_total_ += raw_data.size();
-    return build_frame(raw_data);
+    rows_read_total_ += raw_data.size() + bad_rows.size();
+    return CsvParseResult{build_frame(raw_data), std::move(bad_rows)};
 }
 
 void CsvChunkReader::close() {
