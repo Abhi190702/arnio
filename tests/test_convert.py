@@ -481,14 +481,10 @@ class TestFromPandas:
         message = str(exc_info.value)
         assert "True" in message
 
-
-class TestInt64OverflowValidation:
     def test_uint64_overflow_raises_clear_error(self):
         """UInt64 values outside int64 range raise a clear ValueError."""
         df = pd.DataFrame({"x": pd.Series([2**63], dtype="UInt64")})
-        with pytest.raises(
-            ValueError, match="outside the signed int64 range"
-        ) as exc_info:
+        with pytest.raises(ValueError, match="outside the signed int64 range") as exc_info:
             ar.from_pandas(df)
         assert "x" in str(exc_info.value)
         assert str(2**63) in str(exc_info.value)
@@ -496,9 +492,7 @@ class TestInt64OverflowValidation:
     def test_object_dtype_overflow_raises_clear_error(self):
         """Object dtype integers outside int64 range raise a clear ValueError."""
         df = pd.DataFrame({"x": pd.Series([2**63], dtype=object)})
-        with pytest.raises(
-            ValueError, match="outside the signed int64 range"
-        ) as exc_info:
+        with pytest.raises(ValueError, match="outside the signed int64 range") as exc_info:
             ar.from_pandas(df)
         assert "x" in str(exc_info.value)
         assert str(2**63) in str(exc_info.value)
