@@ -13,6 +13,42 @@ _VALID_DTYPES: frozenset[str] = frozenset(
 )
 
 
+class ColumnSummary:
+    """Schema summary for a single column.
+
+    Attributes
+    ----------
+    name : str
+        Column name.
+    dtype : str
+        Inferred dtype string (e.g. ``"int64"``, ``"string"``).
+    nullable : bool
+        True if the column contains at least one null value, False otherwise.
+    """
+
+    __slots__ = ("name", "dtype", "nullable")
+
+    def __init__(self, name: str, dtype: str, nullable: bool) -> None:
+        self.name = name
+        self.dtype = dtype
+        self.nullable = nullable
+
+    def __repr__(self) -> str:
+        return (
+            f"ColumnSummary(name={self.name!r}, dtype={self.dtype!r},"
+            f" nullable={self.nullable})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ColumnSummary):
+            return NotImplemented
+        return (
+            self.name == other.name
+            and self.dtype == other.dtype
+            and self.nullable == other.nullable
+        )
+
+
 class ArFrame:
     """Lightweight columnar data container backed by C++."""
 
@@ -21,6 +57,89 @@ class ArFrame:
     def __init__(self, cpp_frame: _Frame, attrs: dict | None = None) -> None:
         self._frame = cpp_frame
         self._attrs: dict = attrs if attrs is not None else {}
+
+    @classmethod
+    def from_records(
+        cls,
+        records: list,
+        columns: list[str] | None = None,
+    ) -> ArFrame:
+        """Build an ArFrame from a list of records.
+
+        Parameters
+        ----------
+        records : list
+            A non-empty list of dicts, lists, or tuples.
+        columns : list[str] or None
+            Column names. Required when records are lists or tuples.
+            Optional for dicts — inferred from keys if not given.
+        Returns
+        -------
+        ArFrame
+
+        Raises
+        ------
+        TypeError
+            If records is not a list, elements are mixed types, or a
+            cell value is a list or dict.
+        ValueError
+            If records is empty, columns is missing for sequence records,
+            or a row's length doesn't match columns.
+        """
+        import pandas as pd
+
+        from .convert import from_pandas
+
+        if not isinstance(records, list):
+            raise TypeError(f"records must be a list, got {type(records).__name__!r}")
+
+        if len(records) == 0:
+            raise ValueError("records must be non-empty")
+
+        first = records[0]
+
+        if isinstance(first, dict):
+            for i, row in enumerate(records):
+                if not isinstance(row, dict):
+                    raise TypeError(
+                        f"all records must be dicts, but row {i} is {type(row).__name__!r}"
+                    )
+                for col, val in row.items():
+                    if isinstance(val, (list, dict)):
+                        raise TypeError(
+                            f"nested values are not supported; "
+                            f"column {col!r} at row {i} contains a {type(val).__name__!r}"
+                        )
+            df = pd.DataFrame.from_records(records, columns=columns)
+
+        elif isinstance(first, (list, tuple)):
+            if columns is None:
+                raise ValueError(
+                    "columns must be provided when records are lists or tuples"
+                )
+            for i, row in enumerate(records):
+                if not isinstance(row, (list, tuple)):
+                    raise TypeError(
+                        f"all records must be the same type, but row {i} is {type(row).__name__!r}"
+                    )
+                if len(row) != len(columns):
+                    raise ValueError(
+                        f"row {i} has {len(row)} value(s) but {len(columns)} column(s) were provided"
+                    )
+                for j, val in enumerate(row):
+                    if isinstance(val, (list, dict)):
+                        raise TypeError(
+                            f"nested values are not supported; "
+                            f"column {columns[j]!r} at row {i} contains a {type(val).__name__!r}"
+                        )
+            df = pd.DataFrame.from_records(records, columns=columns)
+
+        else:
+            raise TypeError(
+                f"records must contain dicts, lists, or tuples, got {type(first).__name__!r}"
+            )
+
+        return from_pandas(df)
 
     # --- Properties ---
 
@@ -78,6 +197,42 @@ class ArFrame:
             Mapping of column names to their data types.
         """
         return self._frame.dtypes()
+
+    @property
+    def schema_summary(self) -> list[ColumnSummary]:
+        """Column names, dtypes, and nullability in one place.
+
+        Inspects the C++ frame directly — no pandas conversion triggered.
+
+        Returns
+        -------
+        list[ColumnSummary]
+            One :class:`ColumnSummary` per column, in original column order.
+            Each entry has three attributes:
+
+            * ``name`` – column name (``str``)
+            * ``dtype`` – inferred dtype string, e.g. ``"int64"`` (``str``)
+            * ``nullable`` – ``True`` if the column contains at least one null
+              value, ``False`` otherwise (``bool``)
+
+        Examples
+        --------
+        >>> frame = ar.read_csv("data.csv")
+        >>> for col in frame.schema_summary:
+        ...     print(col.name, col.dtype, col.nullable)
+        id int64 False
+        email string True
+        score float64 True
+        """
+        col_dtypes = self.dtypes
+        result: list[ColumnSummary] = []
+        for i, name in enumerate(self.columns):
+            mask = self._frame.column_by_index(i).get_null_mask()
+            nullable = bool(mask.any())
+            result.append(
+                ColumnSummary(name=name, dtype=col_dtypes[name], nullable=nullable)
+            )
+        return result
 
     @property
     def is_empty(self) -> bool:
@@ -194,12 +349,7 @@ class ArFrame:
         if missing:
             raise ValueError(f"Unknown columns: {missing}")
 
-        from .convert import from_pandas, to_pandas
-
-        df = to_pandas(self)
-        selected_df = df[columns]
-
-        return from_pandas(selected_df)
+        return ArFrame(self._frame.select_columns(columns))
 
     def select_dtypes(
         self,
@@ -330,6 +480,43 @@ class ArFrame:
 
     def __contains__(self, item: object) -> bool:
         return isinstance(item, str) and item in self.columns
+
+    def __getitem__(self, key: str) -> list:
+        """Return column data as a list.
+
+        Parameters
+        ----------
+        key : str
+            Column name to access.
+
+        Returns
+        -------
+        list
+            Column values as a Python list.
+
+        Raises
+        ------
+        TypeError
+            If key is not a string.
+        KeyError
+            If the column does not exist.
+
+        Examples
+        --------
+        >>> frame = ar.read_csv("data.csv")
+        >>> frame["name"]
+        ['Alice', 'Bob', 'Charlie']
+        """
+        if not isinstance(key, str):
+            raise TypeError(f"column key must be a string, got {type(key).__name__!r}")
+
+        if key not in self.columns:
+            raise KeyError(
+                f"Column {key!r} not found. Available columns: {self.columns}"
+            )
+
+        col_index = self.columns.index(key)
+        return [self._frame.column_by_index(col_index).at(i) for i in range(len(self))]
 
     def preview(self, n: int = 5) -> str:
         """Return a lightweight string preview of the first ``n`` rows.

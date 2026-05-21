@@ -126,7 +126,75 @@ class TestToPandas:
         ]
 
 
+class TestFromRecords:
+    def test_list_of_dicts(self):
+        frame = ar.ArFrame.from_records(
+            [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
+        )
+        assert frame.shape == (2, 2)
+        assert frame.columns == ["id", "name"]
+
+    def test_list_of_lists(self):
+        frame = ar.ArFrame.from_records(
+            [[1, "alice"], [2, "bob"]], columns=["id", "name"]
+        )
+        assert frame.shape == (2, 2)
+        assert frame.columns == ["id", "name"]
+
+    def test_list_of_tuples(self):
+        frame = ar.ArFrame.from_records(
+            [(1, "alice"), (2, "bob")], columns=["id", "name"]
+        )
+        assert frame.shape == (2, 2)
+
+    def test_missing_key_fills_none(self):
+        frame = ar.ArFrame.from_records([{"a": 1}, {"a": 2, "b": 99}])
+        assert frame.shape == (2, 2)
+        df = ar.to_pandas(frame)
+        assert pd.isna(df["b"].iloc[0])
+
+    def test_top_level_reexport(self):
+        frame = ar.from_records([{"x": 1}])
+        assert frame.shape == (1, 1)
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            ar.ArFrame.from_records([])
+
+    def test_sequences_without_columns_raises(self):
+        with pytest.raises(ValueError, match="columns must be provided"):
+            ar.ArFrame.from_records([[1, 2]])
+
+    def test_column_count_mismatch_raises(self):
+        with pytest.raises(ValueError, match="row 1"):
+            ar.ArFrame.from_records([[1, 2], [3, 4, 5]], columns=["a", "b"])
+
+    def test_nested_value_raises(self):
+        with pytest.raises(TypeError, match="nested"):
+            ar.ArFrame.from_records([{"a": [1, 2]}])
+
+    def test_mixed_types_raises(self):
+        with pytest.raises(TypeError):
+            ar.ArFrame.from_records([{"a": 1}, [1, 2]])
+
+
 class TestFromPandas:
+    def test_column_order_preserved_with_non_alphabetical_mixed_dtypes(self):
+        df = pd.DataFrame(
+            {
+                "z_name": ["Alice", "Bob"],
+                "a_score": [95.5, 88.0],
+                "m_active": [True, False],
+                "b_id": [1, 2],
+            }
+        )
+
+        frame = ar.from_pandas(df)
+        result = ar.to_pandas(frame)
+
+        assert frame.columns == ["z_name", "a_score", "m_active", "b_id"]
+        assert list(result.columns) == ["z_name", "a_score", "m_active", "b_id"]
+
     def test_basic_roundtrip(self, sample_csv):
         frame = ar.read_csv(sample_csv)
         df = ar.to_pandas(frame)
@@ -258,6 +326,88 @@ class TestFromPandas:
         df = pd.DataFrame({"created_at": [timestamp]})
         with pytest.raises(TypeError, match="Column 'created_at'"):
             ar.from_pandas(df)
+
+    def test_from_pandas_object_timestamp_raises_clear_error(self):
+        df = pd.DataFrame(
+            {
+                "created_at": pd.Series(
+                    [pd.Timestamp("2026-05-14 12:30:00")], dtype=object
+                )
+            }
+        )
+
+        with pytest.raises(TypeError, match="Column 'created_at'") as exc_info:
+            ar.from_pandas(df)
+
+        assert "Fix:" in str(exc_info.value)
+
+    def test_from_pandas_object_timedelta_raises_clear_error(self):
+        df = pd.DataFrame(
+            {"duration": pd.Series([pd.Timedelta("2 days")], dtype=object)}
+        )
+
+        with pytest.raises(TypeError, match="Column 'duration'") as exc_info:
+            ar.from_pandas(df)
+
+        assert "Fix:" in str(exc_info.value)
+
+    def test_from_pandas_object_complex_raises_clear_error(self):
+        df = pd.DataFrame({"signal": pd.Series([1 + 2j], dtype=object)})
+
+        with pytest.raises(TypeError, match="Column 'signal'") as exc_info:
+            ar.from_pandas(df)
+
+        assert "Fix:" in str(exc_info.value)
+
+    def test_from_pandas_object_numpy_complex_raises_clear_error(self):
+        df = pd.DataFrame({"signal": pd.Series([np.complex64(1 + 2j)], dtype=object)})
+
+        with pytest.raises(TypeError, match="Column 'signal'") as exc_info:
+            ar.from_pandas(df)
+
+        assert "Fix:" in str(exc_info.value)
+
+    def test_from_pandas_native_datetime64_raises_clear_error(self):
+        """Native datetime64 columns should raise a clear TypeError with a fix hint."""
+        df = pd.DataFrame({"timestamp": pd.date_range("2026-05-20", periods=3)})
+        with pytest.raises(
+            TypeError, match="Column 'timestamp' has unsupported dtype 'datetime64"
+        ) as exc_info:
+            ar.from_pandas(df)
+        assert "Fix:" in str(exc_info.value)
+        assert ".astype(str)" in str(exc_info.value)
+
+    def test_from_pandas_native_timedelta64_raises_clear_error(self):
+        """Native timedelta64 columns should raise a clear TypeError with a fix hint."""
+        df = pd.DataFrame({"duration": pd.to_timedelta(["1 days", "2 days"])})
+        with pytest.raises(
+            TypeError, match="Column 'duration' has unsupported dtype 'timedelta"
+        ) as exc_info:
+            ar.from_pandas(df)
+        assert "Fix:" in str(exc_info.value)
+        assert ".dt.total_seconds()" in str(exc_info.value)
+
+    def test_from_pandas_native_category_raises_clear_error(self):
+        """Native category columns should raise a clear TypeError with a fix hint."""
+        df = pd.DataFrame(
+            {"category_col": pd.Series(["a", "b", "a"], dtype="category")}
+        )
+        with pytest.raises(
+            TypeError, match="Column 'category_col' has unsupported dtype 'category'"
+        ) as exc_info:
+            ar.from_pandas(df)
+        assert "Fix:" in str(exc_info.value)
+        assert ".astype(str)" in str(exc_info.value)
+
+    def test_from_pandas_native_complex_raises_clear_error(self):
+        """Native complex columns should raise a clear TypeError with a fix hint."""
+        df = pd.DataFrame({"signal": pd.Series([1 + 2j, 3 + 4j], dtype=complex)})
+        with pytest.raises(
+            TypeError, match="Column 'signal' has unsupported dtype 'complex128'"
+        ) as exc_info:
+            ar.from_pandas(df)
+        assert "Fix:" in str(exc_info.value)
+        assert ".apply(str)" in str(exc_info.value)
 
     def test_from_pandas_preserves_column_order(self):
         df = pd.DataFrame(
@@ -481,6 +631,45 @@ class TestFromPandas:
         message = str(exc_info.value)
         assert "True" in message
 
+    def test_from_pandas_all_null_float64_extension(self):
+        df = pd.DataFrame({"score": pd.Series([pd.NA, pd.NA, pd.NA], dtype="Float64")})
+        result = ar.to_pandas(ar.from_pandas(df))
+        assert len(result) == 3
+        assert result["score"].isna().all()
+        assert str(result["score"].dtype) == "string"
+
+    def test_from_pandas_all_null_boolean_extension(self):
+        df = pd.DataFrame({"active": pd.Series([pd.NA, pd.NA, pd.NA], dtype="boolean")})
+        result = ar.to_pandas(ar.from_pandas(df))
+        assert len(result) == 3
+        assert result["active"].isna().all()
+        assert str(result["active"].dtype) == "string"
+
+    def test_from_pandas_all_null_string_extension(self):
+        df = pd.DataFrame({"name": pd.Series([pd.NA, pd.NA, pd.NA], dtype="string")})
+        result = ar.to_pandas(ar.from_pandas(df))
+        assert len(result) == 3
+        assert result["name"].isna().all()
+        assert str(result["name"].dtype) == "string"
+
+    def test_empty_column_dataframe_preserves_row_count(self):
+        df = pd.DataFrame(index=range(3))
+
+        frame = ar.from_pandas(df)
+        result = ar.to_pandas(frame)
+
+        assert frame.shape == (3, 0)
+        assert result.shape == (3, 0)
+        assert result.index.tolist() == [0, 1, 2]
+
+    def test_zero_column_frame_survives_repeated_roundtrip(self):
+        df = pd.DataFrame(index=range(2))
+
+        frame = ar.from_pandas(df)
+        roundtripped = ar.from_pandas(ar.to_pandas(frame))
+
+        assert roundtripped.shape == (2, 0)
+
 
 class TestAttrsPreservation:
     def test_attrs_roundtrip(self):
@@ -636,3 +825,72 @@ class TestToBindingSafeExtras:
             ValueError, match="Invalid financial value: NaN or Infinity."
         ):
             _to_binding_safe(float("nan"))
+
+
+class TestUInt64BoundaryConversion:
+    """Tests for pandas UInt64 and uint64 boundary conversions near signed 64-bit integer limits.
+
+    Links with Fixes #626.
+    """
+
+    def test_uint64_within_bounds(self):
+        # 9223372036854775807 is the maximum signed 64-bit integer.
+        df = pd.DataFrame(
+            {
+                "col_uint": pd.Series(
+                    [0, 12345, 9223372036854775807],
+                    dtype="UInt64",
+                )
+            }
+        )
+        frame = ar.from_pandas(df)
+        assert frame.dtypes["col_uint"] == "int64"
+
+        result = ar.to_pandas(frame)
+        assert list(result["col_uint"]) == [0, 12345, 9223372036854775807]
+
+    def test_uint64_out_of_bounds_raises(self):
+        # 9223372036854775808 exceeds the maximum signed 64-bit integer.
+        df = pd.DataFrame(
+            {
+                "col_uint": pd.Series(
+                    [9223372036854775808],
+                    dtype="UInt64",
+                )
+            }
+        )
+        with pytest.raises(
+            ValueError,
+            match="out of bounds for signed 64-bit integer",
+        ):
+            ar.from_pandas(df)
+
+    def test_numpy_uint64_within_bounds(self):
+        df = pd.DataFrame(
+            {
+                "col_uint": np.array(
+                    [0, 9223372036854775807],
+                    dtype=np.uint64,
+                )
+            }
+        )
+        frame = ar.from_pandas(df)
+        assert frame.dtypes["col_uint"] == "int64"
+
+        result = ar.to_pandas(frame)
+        assert list(result["col_uint"]) == [0, 9223372036854775807]
+
+    def test_numpy_uint64_out_of_bounds_raises(self):
+        df = pd.DataFrame(
+            {
+                "col_uint": np.array(
+                    [9223372036854775808],
+                    dtype=np.uint64,
+                )
+            }
+        )
+        with pytest.raises(
+            ValueError,
+            match="out of bounds for signed 64-bit integer",
+        ):
+            ar.from_pandas(df)

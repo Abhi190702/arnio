@@ -15,7 +15,9 @@ from .cleaning import (
     cast_types,
     clean,
     clip_numeric,
+    coalesce_columns,
     combine_columns,
+    drop_columns,
     drop_columns_matching,
     drop_constant_columns,
     drop_duplicates,
@@ -30,6 +32,7 @@ from .cleaning import (
     replace_values,
     round_numeric_columns,
     safe_divide_columns,
+    select_columns,
     standardize_missing_tokens,
     strip_whitespace,
     trim_column_names,
@@ -39,14 +42,30 @@ from .convert import from_pandas, to_pandas
 from .exceptions import (
     ArnioError,
     CsvReadError,
+    JsonlReadError,
     PipelineStepError,
     TypeCastError,
     UnknownStepError,
 )
-from .frame import ArFrame
-from .integrations import ArnioPandasAccessor
-from .io import read_csv, scan_csv, write_csv
-from .pipeline import pipeline, register_step
+from .frame import ArFrame, ColumnSummary
+from .integrations import ArnioPandasAccessor, register_duckdb
+from .io import (
+    read_csv,
+    read_csv_chunked,
+    read_jsonl,
+    scan_csv,
+    sniff_delimiter,
+    write_csv,
+    write_parquet,
+)
+from .pipeline import (
+    PipelineContext,
+    get_builtin_step_signatures,
+    list_steps,
+    pipeline,
+    register_step,
+    reset_steps,
+)
 from .quality import (
     CleanExplanation,
     CleanStepRecord,
@@ -65,6 +84,7 @@ from .schema import (
     URL,
     Bool,
     CountryCode,
+    CurrencyCode,
     Custom,
     Date,
     DateTime,
@@ -72,6 +92,7 @@ from .schema import (
     Field,
     Float64,
     Int64,
+    PhoneNumber,
     Regex,
     Schema,
     SchemaDiff,
@@ -84,15 +105,24 @@ from .schema import (
     validate,
 )
 
+from_records = ArFrame.from_records
+
 __all__ = [
     # Core class
     "ArFrame",
+    "ColumnSummary",
     # I/O
     "read_csv",
+    "read_csv_chunked",
+    "read_jsonl",
     "write_csv",
+    "write_parquet",
     "scan_csv",
+    "sniff_delimiter",
     # Cleaning
     "drop_nulls",
+    "drop_columns",
+    "select_columns",
     "keep_rows_with_nulls",
     "fill_nulls",
     "validate_columns_exist",
@@ -101,6 +131,7 @@ __all__ = [
     "drop_duplicates",
     "drop_constant_columns",
     "clip_numeric",
+    "coalesce_columns",
     "combine_columns",
     "drop_columns_matching",
     "strip_whitespace",
@@ -116,11 +147,17 @@ __all__ = [
     # Conversion
     "to_pandas",
     "from_pandas",
+    "from_records",
     # Integrations
     "ArnioPandasAccessor",
+    "register_duckdb",
     # Pipeline
     "pipeline",
     "register_step",
+    "get_builtin_step_signatures",
+    "list_steps",
+    "PipelineContext",
+    "reset_steps",
     # Data quality
     "profile",
     "compare_profiles",
@@ -147,14 +184,17 @@ __all__ = [
     "Float64",
     "String",
     "CountryCode",
+    "CurrencyCode",
     "Bool",
     "Email",
     "URL",
+    "PhoneNumber",
     "DateTime",
     # Exceptions
     "UnknownStepError",
     "ArnioError",
     "CsvReadError",
+    "JsonlReadError",
     "TypeCastError",
     "PipelineStepError",
     "normalize_unicode",
