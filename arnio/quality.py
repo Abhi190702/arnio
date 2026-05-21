@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .cleaning import cast_types, drop_duplicates, strip_whitespace
@@ -75,6 +76,11 @@ class ColumnProfile:
     ``empty_string_count`` is the number of non-null values that become empty
     after stripping leading/trailing whitespace — whitespace-only strings are
     therefore counted as empty.
+
+    ``top_values_is_approximate`` indicates whether ``top_values`` were
+    estimated from a deterministic sample. When ``True``,
+    ``top_values_sample_count`` and ``top_values_sample_ratio`` describe the
+    sample used for the counts/ratios.
     """
 
     name: str
@@ -88,6 +94,8 @@ class ColumnProfile:
     empty_string_count: int = 0
     whitespace_count: int = 0
     suggested_dtype: str | None = None
+    email_validity_ratio: float | None = None
+    url_validity_ratio: float | None = None
     min: Any = None
     max: Any = None
     mean: float | None = None
@@ -99,6 +107,10 @@ class ColumnProfile:
     sample_values: list[Any] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     top_values: list[tuple[Any, int, float]] | None = None
+    top_values_is_approximate: bool = False
+    top_values_sample_count: int | None = None
+    top_values_sample_ratio: float | None = None
+    histogram: list[tuple[float, float, int, float]] | None = None
 
     def to_dict(self, *, redact_sample_values: bool = False) -> dict[str, Any]:
         """Return a JSON-friendly dictionary."""
@@ -119,6 +131,8 @@ class ColumnProfile:
             "empty_string_count": self.empty_string_count,
             "whitespace_count": self.whitespace_count,
             "suggested_dtype": self.suggested_dtype,
+            "email_validity_ratio": self.email_validity_ratio,
+            "url_validity_ratio": self.url_validity_ratio,
             "min": _clean_scalar(self.min),
             "max": _clean_scalar(self.max),
             "mean": self.mean,
@@ -141,6 +155,22 @@ class ColumnProfile:
                     for v, c, r in self.top_values
                 ]
                 if self.top_values is not None
+                else None
+            ),
+            "top_values_is_approximate": self.top_values_is_approximate,
+            "top_values_sample_count": self.top_values_sample_count,
+            "top_values_sample_ratio": self.top_values_sample_ratio,
+            "histogram": (
+                [
+                    {
+                        "bucket_start": _clean_scalar(start),
+                        "bucket_end": _clean_scalar(end),
+                        "count": count,
+                        "ratio": ratio,
+                    }
+                    for start, end, count, ratio in self.histogram
+                ]
+                if self.histogram is not None
                 else None
             ),
         }
@@ -220,32 +250,35 @@ class DataQualityReport:
                 warnings = ", ".join(column.warnings) if column.warnings else "-"
 
                 lines.append(
-                    f"| {column.name} "
-                    f"| {column.dtype} "
-                    f"| {column.semantic_type} "
-                    f"| {column.null_count} "
-                    f"| {column.unique_count} "
-                    f"| {column.unique_ratio:.2%} "
-                    f"| {warnings} |"
+                    f"| {_markdown_cell(column.name)} "
+                    f"| {_markdown_cell(column.dtype)} "
+                    f"| {_markdown_cell(column.semantic_type)} "
+                    f"| {_markdown_cell(column.null_count)} "
+                    f"| {_markdown_cell(column.unique_count)} "
+                    f"| {_markdown_cell(f'{column.unique_ratio:.2%}')} "
+                    f"| {_markdown_cell(warnings)} |"
                 )
 
             lines.append("")
 
         # Suggestions
         if self.suggestions:
+            import json
+
             lines.append("## Suggested Cleaning Steps")
             lines.append("")
 
             for step in self.suggestions:
+                kwargs_str = json.dumps(step[1], sort_keys=True, default=str)
                 conf_score = getattr(step, "confidence_score", None)
                 conf_reason = getattr(step, "confidence_reason", None)
                 if conf_score is not None and conf_reason is not None:
                     lines.append(
-                        f"- `{step[0]}`: `{step[1]}` "
+                        f"- `{step[0]}`: `{kwargs_str}` "
                         f"(Confidence: {conf_score:.2f} - {conf_reason})"
                     )
                 else:
-                    lines.append(f"- `{step[0]}`: `{step[1]}`")
+                    lines.append(f"- `{step[0]}`: `{kwargs_str}`")
 
             lines.append("")
 
@@ -398,7 +431,7 @@ class DataQualityReport:
             lines.append(
                 "<thead><tr>"
                 "<th>Name</th><th>Dtype</th><th>Semantic</th><th>Nulls</th><th>Unique</th>"
-                "<th>Top values</th><th>Warnings</th><th>Suggestion</th>"
+                "<th>Top Values / Dist</th><th>Warnings</th><th>Suggestion</th>"
                 "</tr></thead>"
             )
             lines.append("<tbody>")
@@ -416,6 +449,30 @@ class DataQualityReport:
                             f"<span class=\"chip\">{e(v)} · {e(f'{r:.0%}')}</span>"
                         )
                     top_html = "".join(top_bits)
+                elif col.histogram:
+                    max_ratio = max((r for _, _, _, r in col.histogram), default=1.0)
+                    if max_ratio == 0:
+                        max_ratio = 1.0
+                    bars = []
+                    last_idx = len(col.histogram) - 1
+                    for idx, (start, end, count, r) in enumerate(col.histogram):
+                        height_pct = (r / max_ratio) * 100
+                        bucket_label = (
+                            f"[{start:.4g}, {end:.4g}]"
+                            if idx == last_idx
+                            else f"[{start:.4g}, {end:.4g})"
+                        )
+                        bars.append(
+                            f'<div style="flex:1;height:{height_pct}%;background:#3b82f6;min-height:1px;border-radius:1px;" '
+                            f'title="{bucket_label}: {count} ({r:.1%})"></div>'
+                        )
+                    top_html = (
+                        f'<div style="display:inline-flex;align-items:flex-end;gap:1.5px;'
+                        f'height:20px;width:100px;background:#f3f4f6;border-radius:3px;padding:2px;" '
+                        f'title="Numeric Distribution Histogram">'
+                        f'{"".join(bars)}'
+                        f"</div>"
+                    )
                 else:
                     top_html = '<span class="muted">-</span>'
 
@@ -508,6 +565,8 @@ class DataQualityReport:
                     "empty_string_count": column.empty_string_count,
                     "whitespace_count": column.whitespace_count,
                     "suggested_dtype": column.suggested_dtype,
+                    "email_validity_ratio": column.email_validity_ratio,
+                    "url_validity_ratio": column.url_validity_ratio,
                     "min": _clean_scalar(column.min),
                     "max": _clean_scalar(column.max),
                     "mean": column.mean,
@@ -524,6 +583,10 @@ class DataQualityReport:
                     ),
                     "warnings": column.warnings,
                     "top_values": column.top_values,
+                    "top_values_is_approximate": column.top_values_is_approximate,
+                    "top_values_sample_count": column.top_values_sample_count,
+                    "top_values_sample_ratio": column.top_values_sample_ratio,
+                    "histogram": column.histogram,
                 }
                 for column in self.columns.values()
             ]
@@ -659,7 +722,15 @@ class QualityGateResult:
         )
 
 
-def profile(frame: ArFrame, *, sample_size: int = 5) -> DataQualityReport:
+def profile(
+    frame: ArFrame,
+    *,
+    sample_size: int = 5,
+    approx_top_values: bool = False,
+    approx_top_values_min_unique: int = 1000,
+    approx_top_values_min_ratio: float = 0.2,
+    approx_top_values_sample_size: int = 2000,
+) -> DataQualityReport:
     """Profile data quality for an ArFrame.
 
     Parameters
@@ -668,6 +739,14 @@ def profile(frame: ArFrame, *, sample_size: int = 5) -> DataQualityReport:
         Input frame to inspect.
     sample_size : int, default 5
         Number of non-null sample values to keep per column.
+    approx_top_values : bool, default False
+        When True, approximate top values for high-cardinality string columns.
+    approx_top_values_min_unique : int, default 1000
+        Minimum unique count required to enable approximate top values.
+    approx_top_values_min_ratio : float, default 0.2
+        Minimum unique ratio (unique / non-null) required to enable approximation.
+    approx_top_values_sample_size : int, default 2000
+        Number of non-null values sampled to estimate top values.
 
     Returns
     -------
@@ -685,6 +764,26 @@ def profile(frame: ArFrame, *, sample_size: int = 5) -> DataQualityReport:
         raise TypeError("sample_size must be an integer")
     if sample_size < 0:
         raise ValueError("sample_size must be non-negative")
+    if not isinstance(approx_top_values, bool):
+        raise TypeError("approx_top_values must be a bool")
+    if not isinstance(approx_top_values_min_unique, int) or isinstance(
+        approx_top_values_min_unique, bool
+    ):
+        raise TypeError("approx_top_values_min_unique must be an integer")
+    if approx_top_values_min_unique < 0:
+        raise ValueError("approx_top_values_min_unique must be non-negative")
+    if not isinstance(approx_top_values_min_ratio, (int, float)) or isinstance(
+        approx_top_values_min_ratio, bool
+    ):
+        raise TypeError("approx_top_values_min_ratio must be a float")
+    if approx_top_values_min_ratio < 0 or approx_top_values_min_ratio > 1:
+        raise ValueError("approx_top_values_min_ratio must be between 0 and 1")
+    if not isinstance(approx_top_values_sample_size, int) or isinstance(
+        approx_top_values_sample_size, bool
+    ):
+        raise TypeError("approx_top_values_sample_size must be an integer")
+    if approx_top_values_sample_size <= 0:
+        raise ValueError("approx_top_values_sample_size must be positive")
 
     df = to_pandas(frame)
     row_count, column_count = frame.shape
@@ -698,6 +797,10 @@ def profile(frame: ArFrame, *, sample_size: int = 5) -> DataQualityReport:
             dtype=frame.dtypes.get(name, str(df[name].dtype)),
             row_count=row_count,
             sample_size=sample_size,
+            approx_top_values=approx_top_values,
+            approx_top_values_min_unique=approx_top_values_min_unique,
+            approx_top_values_min_ratio=approx_top_values_min_ratio,
+            approx_top_values_sample_size=approx_top_values_sample_size,
         )
         for name in df.columns
     }
@@ -1141,7 +1244,13 @@ def _markdown_cell(value: Any) -> str:
     if value is None:
         return "-"
     text = str(_clean_scalar(value))
-    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+    return (
+        text.replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\r\n", "<br>")
+        .replace("\r", "<br>")
+        .replace("\n", "<br>")
+    )
 
 
 def _compare_column_profiles(
@@ -1547,16 +1656,28 @@ def _profile_column(
     dtype: str,
     row_count: int,
     sample_size: int,
+    approx_top_values: bool,
+    approx_top_values_min_unique: int,
+    approx_top_values_min_ratio: float,
+    approx_top_values_sample_size: int,
 ) -> ColumnProfile:
     null_count = int(series.isna().sum())
     non_null = series.dropna()
     unique_count = int(non_null.nunique(dropna=True))
     unique_ratio = _ratio(unique_count, len(non_null))
+    dominant_ratio = 0.0
+
+    if len(non_null):
+        value_counts = non_null.value_counts(dropna=True)
+        dominant_ratio = _ratio(int(value_counts.iloc[0]), len(non_null))
     sample_values = non_null.head(sample_size).tolist()
 
     empty_string_count = 0
     whitespace_count = 0
     top_values = None
+    top_values_is_approximate = False
+    top_values_sample_count = None
+    top_values_sample_ratio = None
     q25 = q50 = q75 = q95 = None
     std = None
     if dtype == "string" or pd.api.types.is_string_dtype(series.dtype):
@@ -1564,9 +1685,22 @@ def _profile_column(
         stripped = as_text.str.strip()
         empty_string_count = int((stripped == "").sum())
         whitespace_count = int((as_text != stripped).sum())
-        top_values = _top_values(non_null)
+        if (
+            approx_top_values
+            and unique_count >= approx_top_values_min_unique
+            and unique_ratio >= approx_top_values_min_ratio
+        ):
+            top_values, sample_count, sample_ratio = _approx_top_values(
+                non_null,
+                sample_size=approx_top_values_sample_size,
+            )
+            top_values_is_approximate = True
+            top_values_sample_count = sample_count
+            top_values_sample_ratio = sample_ratio
+        else:
+            top_values = _top_values(non_null)
 
-    min_value = max_value = mean = None
+    min_value = max_value = mean = histogram = None
     if len(non_null) and _is_numeric_dtype(dtype):
         numeric = pd.to_numeric(series, errors="coerce")
         numeric_non_null = numeric.dropna()
@@ -1580,6 +1714,23 @@ def _profile_column(
             q50 = round(float(quantiles.loc[0.50]), 4)
             q75 = round(float(quantiles.loc[0.75]), 4)
             q95 = round(float(quantiles.loc[0.95]), 4)
+
+            # Calculate histogram
+            finite_values = numeric_non_null[np.isfinite(numeric_non_null)]
+            if len(finite_values):
+                counts, bin_edges = np.histogram(finite_values.to_numpy(), bins=10)
+                total = int(counts.sum())
+                histogram = [
+                    (
+                        float(bin_edges[i]),
+                        float(bin_edges[i + 1]),
+                        int(counts[i]),
+                        _ratio(int(counts[i]), total),
+                    )
+                    for i in range(len(counts))
+                ]
+            else:
+                histogram = None
     elif len(non_null) and (
         dtype == "string" or pd.api.types.is_string_dtype(series.dtype)
     ):
@@ -1590,12 +1741,28 @@ def _profile_column(
 
     semantic_type = _detect_semantic_type(name, series, dtype)
     suggested_dtype = _suggest_column_dtype(series, dtype)
+
+    email_validity_ratio = None
+    url_validity_ratio = None
+    if len(non_null) > 0:
+        if semantic_type == "email":
+            email_validity_ratio = _match_ratio(
+                non_null.astype("string").str.strip(), _EMAIL_PATTERN
+            )
+        elif semantic_type == "url":
+            url_validity_ratio = _match_ratio(
+                non_null.astype("string").str.strip(), _URL_PATTERN
+            )
+
     warnings = _column_warnings(
         null_count=null_count,
         row_count=row_count,
         unique_count=unique_count,
+        unique_ratio=unique_ratio,
+        semantic_type=semantic_type,
         whitespace_count=whitespace_count,
         empty_string_count=empty_string_count,
+        dominant_ratio=dominant_ratio,
     )
 
     return ColumnProfile(
@@ -1610,6 +1777,8 @@ def _profile_column(
         empty_string_count=empty_string_count,
         whitespace_count=whitespace_count,
         suggested_dtype=suggested_dtype,
+        email_validity_ratio=email_validity_ratio,
+        url_validity_ratio=url_validity_ratio,
         min=min_value,
         max=max_value,
         mean=mean,
@@ -1621,6 +1790,10 @@ def _profile_column(
         sample_values=sample_values,
         warnings=warnings,
         top_values=top_values,
+        top_values_is_approximate=top_values_is_approximate,
+        top_values_sample_count=top_values_sample_count,
+        top_values_sample_ratio=top_values_sample_ratio,
+        histogram=histogram,
     )
 
 
@@ -1682,7 +1855,9 @@ def _suggest_column_dtype(series: pd.Series, dtype: str) -> str | None:
 
     numeric = pd.to_numeric(values, errors="coerce")
     if numeric.notna().all():
-        return "int64" if (numeric % 1 == 0).all() else "float64"
+        if values.str.fullmatch(r"[+-]?\d+").all():
+            return "int64"
+        return "float64"
     return None
 
 
@@ -1691,8 +1866,11 @@ def _column_warnings(
     null_count: int,
     row_count: int,
     unique_count: int,
+    unique_ratio: float,
+    semantic_type: str,
     whitespace_count: int,
     empty_string_count: int,
+    dominant_ratio: float,
 ) -> list[str]:
     warnings: list[str] = []
     if null_count:
@@ -1701,6 +1879,16 @@ def _column_warnings(
         warnings.append("all_null")
     if row_count and unique_count == 1:
         warnings.append("constant")
+    if row_count and unique_count > 1 and dominant_ratio >= _NEAR_CONSTANT_THRESHOLD:
+        warnings.append("near_constant")
+    non_null_count = row_count - null_count
+    if (
+        non_null_count > 0
+        and unique_count >= _HIGH_CARDINALITY_MIN_UNIQUE
+        and unique_ratio >= _HIGH_CARDINALITY_RATIO_THRESHOLD
+        and semantic_type in {"identifier", "text"}
+    ):
+        warnings.append("high_cardinality")
     if whitespace_count:
         warnings.append("leading_or_trailing_whitespace")
     if empty_string_count:
@@ -1741,6 +1929,12 @@ def _clean_scalar(value: Any) -> Any:
     return value
 
 
+_APPROX_TOP_VALUES_SEED = 0
+_NEAR_CONSTANT_THRESHOLD = 0.95
+_HIGH_CARDINALITY_RATIO_THRESHOLD = 0.9
+_HIGH_CARDINALITY_MIN_UNIQUE = 100
+
+
 def _top_values(
     series: pd.Series,
     n: int = 5,
@@ -1756,6 +1950,32 @@ def _top_values(
     return [
         (val, int(cnt), _ratio(int(cnt), total)) for val, cnt in counts.head(n).items()
     ]
+
+
+def _approx_top_values(
+    series: pd.Series,
+    *,
+    n: int = 5,
+    sample_size: int = 2000,
+) -> tuple[list[tuple[Any, int, float]], int, float]:
+    """Return approximate top-N value frequencies for a non-null series.
+
+    Sampling uses a fixed seed for deterministic output.
+    """
+    if len(series) == 0:
+        return [], 0, 0.0
+    sample_n = min(len(series), sample_size)
+    sampled = series.sample(n=sample_n, random_state=_APPROX_TOP_VALUES_SEED)
+    counts = sampled.value_counts(dropna=True)
+    total = int(counts.sum())
+    return (
+        [
+            (val, int(cnt), _ratio(int(cnt), total))
+            for val, cnt in counts.head(n).items()
+        ],
+        sample_n,
+        _ratio(sample_n, len(series)),
+    )
 
 
 _EMAIL_PATTERN = r"[^@\s]+@[^@\s]+\.[^@\s]+"
