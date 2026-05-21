@@ -482,6 +482,38 @@ class TestFromPandas:
         assert "True" in message
 
 
+class TestInt64OverflowValidation:
+    def test_uint64_overflow_raises_clear_error(self):
+        """UInt64 values outside int64 range raise a clear ValueError."""
+        df = pd.DataFrame({"x": pd.Series([2**63], dtype="UInt64")})
+        with pytest.raises(
+            ValueError, match="outside the signed int64 range"
+        ) as exc_info:
+            ar.from_pandas(df)
+        assert "x" in str(exc_info.value)
+        assert str(2**63) in str(exc_info.value)
+
+    def test_object_dtype_overflow_raises_clear_error(self):
+        """Object dtype integers outside int64 range raise a clear ValueError."""
+        df = pd.DataFrame({"x": pd.Series([2**63], dtype=object)})
+        with pytest.raises(
+            ValueError, match="outside the signed int64 range"
+        ) as exc_info:
+            ar.from_pandas(df)
+        assert "x" in str(exc_info.value)
+        assert str(2**63) in str(exc_info.value)
+
+    def test_int64_max_boundary_accepted(self):
+        """2**63 - 1 is the maximum valid int64 value and must be accepted."""
+        df = pd.DataFrame({"x": pd.Series([2**63 - 1], dtype=object)})
+        assert ar.from_pandas(df) is not None
+
+    def test_int64_min_boundary_accepted(self):
+        """-(2**63) is the minimum valid int64 value and must be accepted."""
+        df = pd.DataFrame({"x": pd.Series([-(2**63)], dtype=object)})
+        assert ar.from_pandas(df) is not None
+
+
 class TestAttrsPreservation:
     def test_attrs_roundtrip(self):
         """attrs set on input DataFrame survive from_pandas -> to_pandas."""

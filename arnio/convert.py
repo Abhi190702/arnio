@@ -87,6 +87,10 @@ def _check_unsupported_dtype(col_name: object, series: pd.Series) -> None:
         )
 
 
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1
+
+
 def _normalize_scalar(value: object) -> object:
     if isinstance(value, decimal.Decimal):
         return _to_binding_safe(value)
@@ -96,7 +100,17 @@ def _normalize_scalar(value: object) -> object:
         value = value.item()
     if isinstance(value, float):
         return _to_binding_safe(value)
-    if not isinstance(value, (bool, int, str)):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value < INT64_MIN or value > INT64_MAX:
+            raise ValueError(
+                f"Integer value {value!r} is outside the signed int64 range "
+                f"[{INT64_MIN}, {INT64_MAX}]. "
+                "Convert the column to string first: df[col] = df[col].astype(str)"
+            )
+        return value
+    if not isinstance(value, str):
         return str(value)
     return value
 
@@ -122,8 +136,11 @@ def _series_to_python_values(series: pd.Series, col_name: object) -> list[object
                 f"of type '{type(raw).__name__}' at value {raw!r}. "
                 "Convert nested objects to strings or flatten them first."
             )
+        try:
+            value = _normalize_scalar(raw)
+        except ValueError as e:
+            raise ValueError(f"Column '{col_name}': {e}") from e
 
-        value = _normalize_scalar(raw)
         values.append(value)
         if value is not None:
             kinds.add(_scalar_kind(value))
