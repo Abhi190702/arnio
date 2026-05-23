@@ -2,6 +2,7 @@
 
 #include <array>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,6 +24,46 @@ struct CsvConfig {
     std::optional<size_t> skip_rows = std::nullopt;
     std::string encoding = "utf-8";  // Currently only utf-8 supported
     bool trim_headers = true;        // for implementing the trim_headers option
+    char decimal_separator = '.';
+    std::optional<char> thousands_separator = std::nullopt;
+    std::optional<size_t> sample_size = std::nullopt;
+    std::optional<std::vector<std::string>> null_values = std::nullopt;
+    std::string mode = "strict";
+    std::string encoding_errors = "strict";
+    size_t progress_interval_rows = 10000;
+    std::function<void(size_t, size_t, std::optional<size_t>, bool)> progress_hook = nullptr;
+};
+
+struct BadRow {
+    size_t row;
+    size_t expected;
+    size_t actual;
+};
+
+struct CsvParseResult {
+    Frame frame;
+    std::vector<BadRow> bad_rows;
+};
+
+// Shared CSV field parsing and type inference used by CsvReader and CsvChunkReader.
+class CsvParser {
+   public:
+    explicit CsvParser(const CsvConfig& config = CsvConfig{});
+
+    const CsvConfig& config() const { return config_; }
+
+    std::vector<std::string> parse_line(const std::string& line) const;
+    void parse_line(const std::string& line, std::vector<std::string>& out_fields) const;
+    bool is_null_sentinel(const std::string& value) const;
+    DType infer_type(const std::string& value) const;
+    static DType promote_type(DType current, DType incoming);
+    CellValue parse_value(const std::string& raw, DType dtype, bool is_forced = false) const;
+
+   private:
+    CsvConfig config_;
+    // 256-byte lookup table: non-zero for chars that stop the unquoted
+    // bulk-scan (delimiter, '"', '\r'). Initialised once in the constructor.
+    std::array<uint8_t, 256> stop_unquoted_{};
 };
 
 class CsvReader {
