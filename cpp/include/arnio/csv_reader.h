@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
+#include <functional>
 #include "frame.h"
 
 namespace arnio {
@@ -27,6 +27,8 @@ struct CsvConfig {
     std::optional<std::vector<std::string>> null_values = std::nullopt;
     std::string mode = "strict";
     std::string encoding_errors = "strict";
+    size_t progress_interval_rows = 10000;
+    std::function<void(size_t, size_t, std::optional<size_t>, bool)> progress_hook = nullptr;
 };
 
 struct BadRow {

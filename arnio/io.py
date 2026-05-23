@@ -418,6 +418,15 @@ def _validate_encoding_errors(value: str) -> str:
     return value
 
 
+from dataclasses import dataclass
+from typing import Callable
+
+@dataclass(frozen=True)
+class CSVProgress:
+    rows_read: int
+    bytes_read: int
+    total_bytes: int | None
+    done: bool
 def read_csv(
     path: str | os.PathLike[str],
     *,
@@ -435,6 +444,8 @@ def read_csv(
     mode: str = "strict",
     encoding_errors: str = "strict",
     on_bad_lines: str = "error",
+    progress_hook: Callable[[CSVProgress], None] | None = None,
+    progress_interval_rows: int = 10000,
 ) -> ArFrame:
     """Read a CSV file into an ArFrame via C++ backend.
 
@@ -577,7 +588,13 @@ def read_csv(
 
     if skiprows is not None:
         config.skip_rows = _validate_skip_rows(skiprows)
-
+    if progress_hook is not None:
+        if isinstance(progress_interval_rows, bool) or not isinstance(progress_interval_rows, int):
+            raise TypeError("progress_interval_rows must be an integer")
+        if progress_interval_rows <= 0:
+            raise ValueError("progress_interval_rows must be a positive integer")
+        config.progress_hook = progress_hook
+        config.progress_interval_rows = progress_interval_rows
     reader = _CsvReader(config)
 
     try:

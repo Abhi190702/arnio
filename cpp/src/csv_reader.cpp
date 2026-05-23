@@ -769,8 +769,14 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
 
         raw_data.push_back(reusable_fields);
         ++row_count;
+        if (config.progress_hook != nullptr && row_count > 0 && row_count % config.progress_interval_rows == 0) {
+            config.progress_hook(row_count, 0, std::nullopt, false);
+        }
     }
     file.close();
+    if (config.progress_hook != nullptr) {
+        config.progress_hook(row_count, 0, std::nullopt, true);
+    }
 
     // If no header, generate column names
     if (!config.has_header && !raw_data.empty()) {
@@ -1108,7 +1114,13 @@ std::optional<CsvParseResult> CsvChunkReader::next_chunk(size_t chunksize,
             break;
         }
         raw_data.push_back(std::move(fields));
+        size_t current_row = rows_read_total_ + raw_data.size();
+        if (config.progress_hook != nullptr && current_row > 0 && current_row % config.progress_interval_rows == 0) {
+            config.progress_hook(current_row, 0, std::nullopt, false);
+        
+        }
     }
+    
 
     if (raw_data.empty()) {
         if (bad_rows.empty()) {
