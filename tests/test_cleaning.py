@@ -3201,12 +3201,10 @@ class TestSelectColumns:
         import arnio as ar
 
         df = pd.DataFrame({"first": ["Alice"], "last": ["Smith"]})
-        frame = ar.from_pandas(df)
         result = ar.combine_columns(
-            frame, subset=["first", "last"], output_column="full"
+            df, subset=["first", "last"], output_column="full"
         )
-        out = ar.to_pandas(result)
-        assert out["full"][0] == "Alice Smith"
+        assert result["full"][0] == "Alice Smith"
 
     def test_combine_columns_partial_nulls(self):
         """Partial nulls are skipped — only non-null values are joined."""
@@ -3215,12 +3213,10 @@ class TestSelectColumns:
         import arnio as ar
 
         df = pd.DataFrame({"first": ["Alice"], "middle": [None], "last": ["Smith"]})
-        frame = ar.from_pandas(df)
         result = ar.combine_columns(
-            frame, subset=["first", "middle", "last"], output_column="full"
+            df, subset=["first", "middle", "last"], output_column="full"
         )
-        out = ar.to_pandas(result)
-        assert out["full"][0] == "Alice  Smith"
+        assert result["full"][0] == "Alice Smith"
 
     def test_combine_columns_all_nulls_returns_na(self):
         """Rows where all values are null return pd.NA."""
@@ -3229,9 +3225,7 @@ class TestSelectColumns:
         import arnio as ar
 
         df = pd.DataFrame({"first": [None], "last": [None]})
-        frame = ar.from_pandas(df)
         result = ar.combine_columns(
-            frame, subset=["first", "last"], output_column="full"
+            df, subset=["first", "last"], output_column="full"
         )
-        out = ar.to_pandas(result)
-        assert pd.isna(out["full"][0])
+        assert pd.isna(result["full"][0])
