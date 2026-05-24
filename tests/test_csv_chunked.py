@@ -143,6 +143,7 @@ class TestReadCsvChunkedParity:
         with pytest.raises(CsvReadError, match="expected 2"):
             ar.read_csv(str(path), mode="strict")
 
+
 class TestReadCsvChunkedParamParity:
     """Issue #1256 — encoding_errors, dtype, skiprows/skip_rows parity with read_csv."""
 
@@ -187,7 +188,7 @@ class TestReadCsvChunkedParamParity:
         for chunk in chunks:
             df = ar.to_pandas(chunk)
             # age should be string in every chunk, not int64
-            assert str(df["age"].dtype) in ("object", "string", "StringDtype")
+            assert str(df["age"].dtype).lower().startswith("string") or str(df["age"].dtype) == "object"
 
     def test_dtype_applied_consistently_across_chunks(self, tmp_path):
         """dtype is applied the same way in every chunk, not just the first."""
@@ -264,4 +265,3 @@ class TestReadCsvChunkedParamParity:
         chunks = list(ar.read_csv_chunked(str(path), delimiter=","))
         df = pd.concat([ar.to_pandas(c) for c in chunks], ignore_index=True)
         assert list(df.columns) == ["name", "age"]
-        

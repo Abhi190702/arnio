@@ -5,7 +5,6 @@ CSV reading and writing functions.
 
 from __future__ import annotations
 
-from importlib.resources import path
 import io
 import os
 import shutil
@@ -290,8 +289,8 @@ def _validate_skip_rows(skip_rows: int) -> int:
     return skip_rows
 
 
-    def _validate_skiprows(skiprows: int | None) -> int | None:
-    """Validate skiprows parameter (alias used by read_csv_chunked)."""
+def _validate_skiprows(skiprows: int | None) -> int | None:
+    """Validate skiprows parameter."""
     if skiprows is None:
         return None
     if isinstance(skiprows, bool) or not isinstance(skiprows, int):
@@ -730,6 +729,7 @@ def read_csv_chunked(
     # Handle skip_rows → skiprows deprecation shim
     if skip_rows is not None:
         import warnings
+
         warnings.warn(
             "skip_rows is deprecated and will be removed in a future release. "
             "Use skiprows instead.",
@@ -742,7 +742,6 @@ def read_csv_chunked(
             )
         skiprows = skip_rows
 
-    
     # Delimiter auto-inference (matches read_csv behaviour)
     if delimiter is None:
         delimiter = "\t" if path.lower().endswith(".tsv") else ","
@@ -785,7 +784,7 @@ def read_csv_chunked(
         with _utf8_csv_path(path, encoding, delimiter=delimiter) as native_path:
             reader.open(native_path)
             while True:
-                chunk = reader.next_chunk(chunksize, on_bad_lines)
+            chunk = reader.next_chunk(chunksize, on_bad_lines)
                 if chunk is None:
                     break
                 cpp_frame, bad_rows = chunk
@@ -793,7 +792,11 @@ def read_csv_chunked(
                 if on_bad_lines == "warn" and bad_rows:
                     _warn_bad_rows(bad_rows)
 
-                yield ArFrame(cpp_frame)
+                ar_frame = ArFrame(cpp_frame)
+                if dtype is not None:
+                    from .cleaning import cast_types as _apply_dtype
+                    ar_frame = _apply_dtype(ar_frame, dtype)
+                yield ar_frame    
     except ValueError:
         raise
     except CsvReadError:
@@ -820,10 +823,8 @@ def write_csv(
         The data frame to write.
     path : str
         Destination file path. Supports .csv, .txt, and .tsv extensions.
-    delimiter : str or None, default None
-        Field delimiter character. When ``None`` (the default) the
-        delimiter is inferred from the file extension: ``'\t'`` for
-        ``.tsv`` files and ``','`` for everything else.
+    delimiter : str or default ","
+        Field delimiter character.
     write_header : bool, default True
         Whether to write the column header row.
     line_terminator : str, default "\\n"
