@@ -1217,6 +1217,7 @@ def scan_csv(
     *,
     delimiter: str | None = None,
     encoding: str = "utf-8",
+    skiprows: int | None = None,
     trim_headers: bool = True,
     decimal_separator: str = ".",
     thousands_separator: str | None = None,
@@ -1242,7 +1243,11 @@ def scan_csv(
         ``.tsv`` files and ``','`` for everything else.  Passing an
         explicit value always takes precedence.
     encoding : str, default "utf-8"
-        File encoding. Non-UTF-8 inputs are transcoded before native scanning.
+        File encoding. For non-UTF-8 inputs, a sample of the file is
+        transcoded to infer the schema.
+    skiprows : int or None, default None
+        Number of lines to skip at the beginning of the file before reading the
+        header or data. Useful for bypassing unstructured metadata.
     trim_headers : bool, default True
         Strip leading/trailing whitespace from column names.
 
@@ -1287,11 +1292,11 @@ def scan_csv(
     Raises
     ------
     ValueError
-        If thousands_separator is invalid.
+        If thousands_separator or skiprows is invalid.
 
     TypeError
         If delimiter is not a string or None, or thousands_separator is
-        not a string or None.
+        not a string or None, or skiprows is not an integer.
 
     CsvReadError
         If CSV input contains NUL bytes and appears binary or corrupted.
@@ -1332,6 +1337,8 @@ def scan_csv(
     config.has_header = has_header
     config.encoding_errors = encoding_errors
 
+    if skiprows is not None:
+        config.skip_rows = _validate_skip_rows(skiprows)
     if null_values is not None:
         config.null_values = _validate_null_values(null_values)
 
@@ -1343,6 +1350,13 @@ def scan_csv(
         config.sample_size = sample_size
 
     reader = _CsvReader(config)
+
+    # Calculate the total rows needed from the file to satisfy the sample
+    # request, ensuring skipped rows don't reduce the effective sample size.
+    effective_sample_rows = 100 if sample_size is None else sample_size
+    if skiprows is not None:
+        effective_sample_rows += skiprows
+
     try:
         # Schema inference only needs a sample, avoiding full-file transcode.
         # sample_rows is passed so _utf8_csv_path uses record-aware sampling
@@ -1352,46 +1366,9 @@ def scan_csv(
             encoding,
             encoding_errors=encoding_errors,
             delimiter=delimiter,
-            sample_rows=100 if sample_size is None else sample_size,
-            has_header=has_header,
-        ) as (native_path, sampled_rows):
-            # reader.scan_schema returns schema and optionally a list of
-            # bad-row messages when on_bad_lines is in effect.
-            schema: dict[str, str]
-            bad_row_msgs: Sequence[object]
-            try:
-                schema_result = reader.scan_schema(native_path, on_bad_lines)
-            except TypeError:
-                # Older C++ extension exposes a single-argument scan_schema
-                # returning only the schema dict. Normalize to a two-tuple.
-                schema = dict(cast(Mapping[str, str], reader.scan_schema(native_path)))
-                bad_row_msgs = []
-            else:
-                if isinstance(schema_result, tuple):
-                    typed_result = cast(
-                        tuple[Mapping[str, str], Sequence[object]], schema_result
-                    )
-                    schema = dict(typed_result[0])
-                    bad_row_msgs = typed_result[1]
-                else:
-                    schema = dict(cast(Mapping[str, str], schema_result))
-                    bad_row_msgs = []
-
-            if on_bad_lines == "warn" and bad_row_msgs:
-                _warn_bad_rows(bad_row_msgs)
-
-            if has_header and sampled_rows > 0:
-                sampled_rows -= 1
-
-            if return_metadata:
-                metadata: dict[str, object] = {
-                    "delimiter": delimiter,
-                    "encoding": encoding,
-                    "sampled_rows": sampled_rows,
-                }
-                return {"schema": schema, "metadata": metadata}
-
-            return schema
+            sample_rows=effective_sample_rows,
+        ) as native_path:
+            return cast(dict[str, str], reader.scan_schema(native_path))
     except RuntimeError as e:
         raise CsvReadError(str(e)) from e
 
