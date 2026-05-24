@@ -803,8 +803,7 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
             }
             col_indices.push_back(static_cast<size_t>(std::distance(header.begin(), it)));
         }
-    }
-    else{
+    } else {
         for (size_t i = 0; i < num_cols; ++i) {
             col_indices.push_back(i);
         }
