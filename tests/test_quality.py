@@ -2464,6 +2464,32 @@ def test_data_quality_report_to_json_exclude_columns():
     assert "age" not in parsed["columns"]
 
 
+def test_data_quality_report_exclude_columns_filters_missingness_correlations():
+    report = ar.DataQualityReport(
+        row_count=10,
+        column_count=3,
+        memory_usage=100,
+        duplicate_rows=0,
+        duplicate_ratio=0.0,
+        columns={},
+        missingness_correlations=[
+            {"column_a": "age", "column_b": "name", "correlation": 0.9},
+            {"column_a": "name", "column_b": "height", "correlation": 0.7},
+            {"column_a": "weight", "column_b": "age", "correlation": 0.5},
+        ],
+    )
+
+    as_dict = report.to_dict(exclude_columns=["age"])
+    assert as_dict["missingness_correlations"] == [
+        {"column_a": "name", "column_b": "height", "correlation": 0.7}
+    ]
+
+    as_json = json.loads(report.to_json(exclude_columns=["age"]))
+    assert as_json["missingness_correlations"] == [
+        {"column_a": "name", "column_b": "height", "correlation": 0.7}
+    ]
+
+
 def test_data_quality_report_to_json_redact_sample_values():
     from arnio._core import _DType, _Frame
     from arnio.frame import ArFrame

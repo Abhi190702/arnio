@@ -256,7 +256,12 @@ class DataQualityReport:
                 }
                 for s in self.suggestions
             ],
-            "missingness_correlations": list(self.missingness_correlations),
+            "missingness_correlations": [
+                hint
+                for hint in self.missingness_correlations
+                if hint.get("column_a") not in exclude_columns
+                and hint.get("column_b") not in exclude_columns
+            ],
         }
 
     def to_json(
