@@ -593,7 +593,7 @@ def read_csv(
             raise TypeError("progress_interval_rows must be an integer")
         if progress_interval_rows <= 0:
             raise ValueError("progress_interval_rows must be a positive integer")
-            
+
         def wrapper(rows: int, bytes_read: int, total_bytes: int, is_done: bool):
             box = CSVProgress(
                 rows_read=rows,
@@ -602,11 +602,11 @@ def read_csv(
                 done=is_done
             )
             progress_hook(box)
-            
+
         config.progress_hook = wrapper
-        
+
         config.progress_interval_rows = progress_interval_rows
-        
+
     reader = _CsvReader(config)
 
     try:
@@ -762,14 +762,23 @@ def read_csv_chunked(
     if nrows is not None:
         config.nrows = _validate_nrows(nrows)
 
-    
+
     if progress_hook is not None:
         if isinstance(progress_interval_rows, bool) or not isinstance(progress_interval_rows, int):
             raise TypeError("progress_interval_rows must be an integer")
         if progress_interval_rows <= 0:
             raise ValueError("progress_interval_rows must be a positive integer")
-            
+
+        last_rows = 0
+        last_bytes = 0
+        last_total = 0
+
         def wrapper(rows: int, bytes_read: int, total_bytes: int, is_done: bool):
+            nonlocal last_rows, last_bytes, last_total
+            last_rows = rows
+            last_bytes = bytes_read
+            last_total = total_bytes
+
             box = CSVProgress(
                 rows_read=rows,
                 bytes_read=bytes_read,
@@ -777,7 +786,7 @@ def read_csv_chunked(
                 done=is_done
             )
             progress_hook(box)
-            
+
         config.progress_hook = wrapper
         config.progress_interval_rows = progress_interval_rows
 
@@ -790,19 +799,21 @@ def read_csv_chunked(
                 if chunk is None:
                     if progress_hook is not None:
                         final_box = CSVProgress(
-                            rows_read=0, 
-                            bytes_read=0, 
-                            total_bytes=0, 
+                            rows_read=last_rows,
+                            bytes_read=last_bytes,
+                            total_bytes=last_total,
                             done=True
                         )
                         progress_hook(final_box)
                     break
+
                 cpp_frame, bad_rows = chunk
 
                 if on_bad_lines == "warn" and bad_rows:
                     _warn_bad_rows(bad_rows)
 
                 yield ArFrame(cpp_frame)
+
     except ValueError:
         raise
     except CsvReadError:

@@ -2505,19 +2505,24 @@ class TestArFrameToDict:
             assert result[col] == frame[col]
 def test_csv_progress_hook_fires(tmp_path):
     import arnio as ar
-    
-    # 1. Create a tiny dummy CSV file
+
     test_file = tmp_path / "test_progress.csv"
     test_file.write_text("a,b\n1,2\n3,4\n5,6\n")
 
-    # 2. Make a simple hook that counts how many times it was called
-    call_count = 0
-    def dummy_hook(*args):
-        nonlocal call_count
-        call_count += 1
+    captured_payloads = []
+    def dummy_hook(progress):
+        captured_payloads.append(progress)
 
-    # 3. Run your brand new feature!
     ar.read_csv(str(test_file), progress_hook=dummy_hook, progress_interval_rows=1)
 
-    # 4. Prove that it worked!
-    assert call_count > 0
+    assert len(captured_payloads) > 0
+
+    last_payload = captured_payloads[-1]
+
+    assert hasattr(last_payload, "rows_read")
+    assert hasattr(last_payload, "bytes_read")
+    assert hasattr(last_payload, "total_bytes")
+    assert hasattr(last_payload, "done")
+
+    assert last_payload.done is True
+    assert last_payload.rows_read > 0

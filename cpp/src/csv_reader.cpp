@@ -769,7 +769,7 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
 
         raw_data.push_back(reusable_fields);
         ++row_count;
-        
+
         // Intermediate Progress Signal
         if (config.progress_hook != nullptr && row_count > 0 && row_count % config.progress_interval_rows == 0) {
             config.progress_hook(row_count, (size_t)file.tellg(), std::nullopt, false);
@@ -780,7 +780,7 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
     if (config.progress_hook != nullptr) {
         config.progress_hook(row_count, (size_t)file.tellg(), std::nullopt, true);
     }
-    
+
     // Safely close the file at the very end
     file.close();
     // If no header, generate column names
@@ -803,7 +803,8 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
             }
             col_indices.push_back(static_cast<size_t>(std::distance(header.begin(), it)));
         }
-    } else {
+    }
+    else{
         for (size_t i = 0; i < num_cols; ++i) {
             col_indices.push_back(i);
         }
@@ -1120,9 +1121,16 @@ std::optional<CsvParseResult> CsvChunkReader::next_chunk(size_t chunksize,
         }
         raw_data.push_back(std::move(fields));
         size_t current_row = rows_read_total_ + raw_data.size();
-        
+        if (config.progress_hook != nullptr &&
+             current_row > 0 &&
+             current_row % config.progress_interval_rows == 0) {
+             config.progress_hook(current_row,
+                         (size_t)file_.tellg(),
+                         std::nullopt,
+                         false);
+                        }
     }
-    
+
     if (raw_data.empty()) {
         if (bad_rows.empty()) {
             return std::nullopt;
@@ -1156,7 +1164,6 @@ std::optional<CsvParseResult> CsvChunkReader::next_chunk(size_t chunksize,
         }
         schema_locked_ = true;
     }
-
     rows_read_total_ += raw_data.size() + bad_rows.size();
     return CsvParseResult{build_frame(raw_data), std::move(bad_rows)};
 }
