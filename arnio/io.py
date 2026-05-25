@@ -937,8 +937,7 @@ def scan_csv(
     config.encoding_errors = encoding_errors
 
     if skiprows is not None:
-        config.skip_rows = _validate_skip_rows(skiprows)
-
+      config.skip_rows = _validate_skip_rows(skiprows)
     if null_values is not None:
         config.null_values = _validate_null_values(null_values)
 
@@ -950,13 +949,13 @@ def scan_csv(
         config.sample_size = sample_size
 
     reader = _CsvReader(config)
-    
+
     # Calculate the total rows needed from the file to satisfy the sample
     # request, ensuring skipped rows don't reduce the effective sample size.
     effective_sample_rows = 100 if sample_size is None else sample_size
     if skiprows is not None:
         effective_sample_rows += skiprows
-        
+
     try:
         # Schema inference only needs a sample, avoiding full-file transcode.
         # sample_rows is passed so _utf8_csv_path uses record-aware sampling
@@ -971,6 +970,8 @@ def scan_csv(
             return cast(dict[str, str], reader.scan_schema(native_path))
     except RuntimeError as e:
         raise CsvReadError(str(e)) from e
+
+
 def read_jsonl(
     path: str | os.PathLike[str],
     *,
