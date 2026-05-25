@@ -6,7 +6,11 @@ import pytest
 
 import arnio as ar
 from arnio import from_pandas, to_pandas
-from arnio.cleaning import _validate_column_sequence, _validate_string_mapping
+from arnio.cleaning import (
+    _validate_column_sequence,
+    _validate_existing_column_sequence,
+    _validate_string_mapping,
+)
 
 
 class TestDropNulls:
@@ -3772,3 +3776,41 @@ class TestValidateStringMapping:
     def test_empty_mapping_allow_empty_false_raises(self):
         with pytest.raises(ValueError, match="must not be empty"):
             _validate_string_mapping({}, argument_name="mapping", allow_empty=False)
+
+
+class TestValidateExistingColumnSequence:
+    def test_missing_columns_raise_keyerror(self):
+        available = ["col1", "col2", "col3"]
+        with pytest.raises(KeyError, match="Missing columns"):
+            _validate_existing_column_sequence(
+                ["col1", "nonexistent"], available_columns=available, argument_name="columns"
+            )
+
+    def test_missing_columns_use_custom_error(self):
+        available = ["col1", "col2"]
+        with pytest.raises(KeyError, match="Custom missing message"):
+            _validate_existing_column_sequence(
+                ["col1", "nonexistent"],
+                available_columns=available,
+                argument_name="columns",
+                missing_message=lambda m, a: "Custom missing message",
+            )
+
+    def test_empty_sequence_allow_empty_false_raises(self):
+        with pytest.raises(ValueError, match="cannot be empty"):
+            _validate_existing_column_sequence(
+                [], available_columns=["col1"], argument_name="columns", allow_empty=False
+            )
+
+    def test_empty_sequence_allow_empty_true_returns_empty(self):
+        result = _validate_existing_column_sequence(
+            [], available_columns=["col1"], argument_name="columns", allow_empty=True
+        )
+        assert result == []
+
+    def test_valid_columns_return_normalized(self):
+        available = ["col1", "col2", "col3"]
+        result = _validate_existing_column_sequence(
+            ["col1", "col3"], available_columns=available, argument_name="columns"
+        )
+        assert result == ["col1", "col3"]
