@@ -6,7 +6,6 @@ Data quality profiling and safe automatic cleaning helpers.
 from __future__ import annotations
 
 import html
-import io
 import json
 import math
 from collections.abc import Sequence
@@ -283,7 +282,7 @@ class DataQualityReport:
         indent: int | None = None,
         redact_sample_values: bool = False,
         exclude_columns: list[str] | set[str] | tuple[str, ...] | None = None,
-        output: Any | None = None,
+        output: TextIO | None = None,
     ) -> str | None:
         """Return the report as a JSON string.
 
@@ -299,22 +298,17 @@ class DataQualityReport:
             indent=indent,
         )
 
-    def to_markdown(self, output: TextIO | None = None) -> str | None:
-        """Return a GitHub-friendly Markdown report.
-
-        If ``output`` is provided, the markdown is written to that writable text
-        stream and this method returns ``None``.
-        """
         if output is None:
             return json_out
 
+        # Must be a writable *text* stream (e.g., io.StringIO or an open file handle).
         if not hasattr(output, "write"):
             raise TypeError("output must be a writable text stream")
 
         output.write(json_out)
         return None
 
-    def to_markdown(self, output: Any | None = None) -> str | None:
+    def to_markdown(self, output: TextIO | None = None) -> str | None:
         """Return a GitHub-friendly Markdown report."""
 
         lines: list[str] = []
@@ -406,7 +400,7 @@ class DataQualityReport:
             return markdown
 
         # Must be a writable *text* stream (e.g., io.StringIO or an open file handle).
-        if not isinstance(output, io.TextIOBase) or not output.writable():
+        if not hasattr(output, "write"):
             raise TypeError("output must be a writable text stream")
 
         output.write(markdown)
@@ -432,7 +426,7 @@ class DataQualityReport:
             return html_out
 
         # Must be a writable *text* stream (e.g., io.StringIO or an open file handle).
-        if not isinstance(output, io.TextIOBase) or not output.writable():
+        if not hasattr(output, "write"):
             raise TypeError("output must be a writable text stream")
 
         output.write(html_out)
