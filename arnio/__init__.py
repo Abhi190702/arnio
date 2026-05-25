@@ -39,6 +39,7 @@ from .cleaning import (
     trim_column_names,
     validate_columns_exist,
     winsorize_outliers,
+    rolling_window,
 )
 from .convert import from_pandas, to_arrow, to_pandas
 from .exceptions import (
@@ -149,6 +150,7 @@ __all__ = [
     "safe_divide_columns",
     "trim_column_names",
     "standardize_missing_tokens",
+    "rolling_window",
     # Conversion
     "to_pandas",
     "to_arrow",

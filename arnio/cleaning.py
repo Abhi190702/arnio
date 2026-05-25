@@ -1769,7 +1769,7 @@ def rolling_window(data: list[float], window_size: int) -> list[list[float]]:
     Returns:
         A list of sequential window arrays.
     """
-    if not isinstance(window_size, int):
+    if not isinstance(window_size, int) or isinstance(window_size, bool):
         raise TypeError("window_size must be an integer")
 
     # Call the C++ function we bound earlier
