@@ -26,6 +26,7 @@ from ._core import (
     _rename_columns,
     _safe_divide_columns,
     _strip_whitespace,
+    create_rolling_windows,
 )
 from .convert import from_pandas, to_pandas
 from .exceptions import TypeCastError
@@ -1755,3 +1756,21 @@ def coalesce_columns(
     df[output_column] = df[subset_columns].bfill(axis=1).iloc[:, 0]
 
     return from_pandas(df) if is_arframe else df
+
+
+def rolling_window(data: list[float], window_size: int) -> list[list[float]]:
+    """
+    Transforms a sequential dataset into overlapping rolling windows.
+
+    Args:
+        data: A 1D list of numeric values.
+        window_size: The number of elements to include in each window.
+
+    Returns:
+        A list of sequential window arrays.
+    """
+    if not isinstance(window_size, int):
+        raise TypeError("window_size must be an integer")
+
+    # Call the C++ function we bound earlier
+    return create_rolling_windows(data, window_size)

@@ -22,6 +22,7 @@ try:
         rename_columns as _rename_columns,
         safe_divide_columns as _safe_divide_columns,
         strip_whitespace as _strip_whitespace,
+        create_rolling_windows,
     )
 except ImportError as e:
     raise ImportError(
