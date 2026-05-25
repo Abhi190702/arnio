@@ -25,6 +25,7 @@ from ._core import (
     _rename_columns,
     _safe_divide_columns,
     _strip_whitespace,
+    create_rolling_windows,
 )
 from .exceptions import TypeCastError
 
@@ -1776,7 +1777,101 @@ def standardize_missing_tokens(frame, tokens=None, subset=None):
 
     return from_pandas(df) if is_arframe else df
 
-def parse_numeric_strings(
+
+def coalesce_columns(
+    frame,
+    *,
+    subset: Sequence[str],
+    output_column: str = "coalesced",
+):
+    """Select the first non-null value from a list of columns.
+
+    Parameters
+    ----------
+    frame : ArFrame or pd.DataFrame
+        Input data frame.
+    subset : sequence of str
+        Sequence of columns to check in order.
+    output_column : str, default "coalesced"
+        Name of the new column to store coalesced values.
+
+    Returns
+    -------
+    ArFrame or pd.DataFrame
+        New frame with coalesced column.
+
+    Raises
+    ------
+    TypeError
+        If subset is not a list, or frame is not an ArFrame or DataFrame.
+    ValueError
+        If subset is empty, output_column is empty, or output_column already
+        exists in the frame.
+    KeyError
+        If any column in subset does not exist in the frame.
+
+    Examples
+    --------
+    >>> frame = ar.read_csv("data.csv")
+    >>> result = ar.coalesce_columns(frame, subset=["col_a", "col_b"],
+    ...                              output_column="first_non_null")
+    """
+    from .convert import from_pandas, to_pandas
+
+    frame, is_arframe = _validate_frame(frame, allow_pandas=True)
+
+    if not isinstance(output_column, str) or not output_column.strip():
+        raise ValueError("output_column must be a non-empty string")
+
+    column_names = list(frame.columns)
+    subset_columns = _validate_existing_column_sequence(
+        subset,
+        available_columns=column_names,
+        argument_name="subset",
+        reject_duplicates=True,
+        missing_message=lambda missing, available: (
+            f"Missing columns for coalesce_columns: {missing}. "
+            f"Available columns: {available}"
+        ),
+    )
+
+    if not subset_columns:
+        raise ValueError("subset must contain at least one column")
+
+    if output_column in column_names:
+        raise ValueError(f"Output column '{output_column}' already exists.")
+
+    df = to_pandas(frame) if is_arframe else frame.copy(deep=False)
+
+    # Select the first non-null/non-NaN/non-None value per row
+    df[output_column] = df[subset_columns].bfill(axis=1).iloc[:, 0]
+
+    return from_pandas(df) if is_arframe else df
+
+
+def rolling_window(
+    data: list[float], window_size: int, stride: int = 1
+) -> list[list[float]]:
+    """
+    Transforms a sequential dataset into overlapping rolling windows.
+
+    Args:
+        data: A 1D list of numeric values.
+        window_size: The number of elements to include in each window.
+        stride: The step size between windows (default is 1).
+
+    Returns:
+        A list of sequential window arrays.
+    """
+    if not isinstance(window_size, int) or isinstance(window_size, bool):
+        raise TypeError("window_size must be an integer")
+    if not isinstance(stride, int) or isinstance(stride, bool):
+        raise TypeError("stride must be an integer")
+
+    return create_rolling_windows(data, window_size, stride)
+
+
+def clean_column_names(
     frame: ArFrame,
     *,
     subset: list[str] | None = None,
@@ -1797,53 +1892,51 @@ def parse_numeric_strings(
     Returns
     -------
     ArFrame
-        New frame with parsed numeric columns.
+        New frame with cleaned column names.
 
-    Examples
-    --------
-    >>> frame = ar.read_csv("data.csv")
-    >>> cleaned = ar.parse_numeric_strings(frame, subset=["price", "discount"])
+    Raises
+    ------
+    TypeError
+        If case_type is not a string.
+    ValueError
+        If case_type is invalid or if cleaning would create duplicate column names.
     """
+    _validate_arframe(frame)
+    if not isinstance(case_type, str):
+        raise TypeError("case_type must be a string")
+    if case_type not in {"lower", "upper", "none"}:
+        raise ValueError("case_type must be one of 'lower', 'upper', or 'none'")
 
-    if errors not in ("coerce", "raise"):
-        raise ValueError(f"errors parameter must be 'coerce' or 'raise', not '{errors}'")
+    import re
 
-    if subset is not None:
-        validate_columns_exist(
-            frame,
-            _validate_column_sequence(subset, argument_name="subset"),
-            operation="parse_numeric_strings",
-        )
+    cleaned = []
+    for col in frame.columns:
+        # Replace non-alphanumeric characters with underscores
+        name = re.sub(r"[^a-zA-Z0-9_]", "_", col)
+        # Trim consecutive underscores
+        name = re.sub(r"_+", "_", name)
+        # Trim boundary underscores
+        name = name.strip("_")
+        # Normalize case
+        if case_type == "lower":
+            name = name.lower()
+        elif case_type == "upper":
+            name = name.upper()
 
-    is_arframe = not isinstance(frame, pd.DataFrame)
-    df = to_pandas(frame) if is_arframe else frame.copy()
+        if not name:
+            name = "column"
+        cleaned.append(name)
 
-    if subset is not None:
-        target_columns = subset
-    else:
-        target_columns = df.select_dtypes(include=["object", "string"]).columns.tolist()
+    if len(cleaned) != len(set(cleaned)):
+        raise ValueError(f"Cleaning column names would create duplicates: {cleaned}")
 
-    if not target_columns:
-        return frame
+    mapping = {
+        original: updated
+        for original, updated in zip(frame.columns, cleaned)
+        if original != updated
+    }
+    if not mapping:
+        return copy.deepcopy(frame)
 
-    for col in target_columns:
-        if pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]):
-            # 1. Clean whitespace
-            cleaned_series = df[col].astype(str).str.strip()
-
-            # 2. Remove currency symbols and thousands separators
-            cleaned_series = cleaned_series.str.replace(r"[$,£€]", "", regex=True)
-
-            # 3. Identify and remove percentages
-            is_percent = cleaned_series.str.endswith("%")
-            cleaned_series = cleaned_series.str.replace("%", "", regex=False)
-
-            # 4. Convert to numeric
-            numeric_series = pd.to_numeric(cleaned_series, errors=errors)
-
-            # 5. Divide percentages by 100
-            numeric_series.loc[is_percent] = numeric_series.loc[is_percent] / 100.0
-
-            df[col] = numeric_series
-
-    return from_pandas(df) if is_arframe else df
+    result = _rename_columns(frame._frame, mapping)
+    return ArFrame(result)

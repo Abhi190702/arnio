@@ -249,7 +249,17 @@ PYBIND11_MODULE(_arnio_cpp, m) {
         .def("scan_schema", &CsvReader::scan_schema);
 
     // --- Cleaning functions ---
-    m.def("drop_nulls", &drop_nulls, py::arg("frame"), py::arg("subset") = std::nullopt);
+    // Expose the function to Python
+    m.def("create_rolling_windows", &create_rolling_windows,
+          "Generate rolling windows from a 1D numeric array.");
+
+    m.def(
+        "drop_nulls",
+        [](const Frame& frame, const std::optional<std::vector<std::string>>& subset) {
+            py::gil_scoped_release release;
+            return drop_nulls(frame, subset);
+        },
+        py::arg("frame"), py::arg("subset") = std::nullopt);
 
     m.def(
         "fill_nulls",

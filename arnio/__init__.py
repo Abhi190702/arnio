@@ -31,6 +31,9 @@ from .cleaning import (
     parse_bool_strings,
     parse_numeric_strings,
     rename_columns,
+    rename_columns_matching,
+    replace_values,
+    rolling_window,
     round_numeric_columns,
     safe_divide_columns,
     strip_whitespace,
@@ -109,6 +112,8 @@ __all__ = [
     "safe_divide_columns",
     "trim_column_names",
     "standardize_missing_tokens",
+    "rolling_window",
+    "CleaningSuggestion",
     # Conversion
     "to_pandas",
     "to_numpy",

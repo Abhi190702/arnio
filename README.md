@@ -595,6 +595,42 @@ Most operations below run natively in C++. Currently, `filter_rows`, `replace_va
 | `clean` | Convenience shorthand | `ar.clean(frame, drop_nulls=True)` |
 | `winsorize_outliers` | Cap extreme values at percentile bounds | `ar.winsorize_outliers(frame, lower=0.05, upper=0.95)` |
 | `safe_divide_columns` | Divide one column by another, handling zero/null denominators | `ar.safe_divide_columns(frame, numerator="revenue", denominator="cost", output_column="ratio")` |
+| `drop_columns_matching` | Drop columns whose names match a regex pattern | `ar.drop_columns_matching(frame, pattern="^temp_")` |
+| `trim_column_names` | Strip leading/trailing whitespace from column names | `ar.trim_column_names(frame)` |
+| `select_columns` | Return a new frame containing only selected columns | `ar.select_columns(frame, ["id", "name"])` |
+| `slugify_column_names` | Normalise column names to snake_case | `ar.slugify_column_names(frame)` |
+
+### Rolling Windows
+You can easily extract overlapping sequential windows from 1D data using the standalone `rolling_window` helper:
+
+```python
+import arnio as ar
+
+data = [1.0, 2.0, 3.0, 4.0, 5.0]
+windows = ar.rolling_window(data, window_size=3, stride=1)
+# Returns: [[1.0, 2.0, 3.0], [2.0, 3.0, 4.0], [3.0, 4.0, 5.0]]
+
+#### `ArFrame.select_dtypes` — type-based column selection
+
+Returns a **new `ArFrame`** containing only the columns whose dtype matches the filter. Raises `ValueError` if no columns match.
+
+```python
+frame = ar.read_csv("data.csv")
+
+# Keep only numeric columns
+numeric = frame.select_dtypes(include=["int64", "float64"])
+
+# Drop string columns
+without_strings = frame.select_dtypes(exclude="string")
+```
+
+**Valid dtype strings:** `"int64"`, `"float64"`, `"string"`, `"bool"`, `"null"`
+
+- At least one of `include` or `exclude` must be given — raises `ValueError` otherwise.
+- `include` and `exclude` must not overlap — raises `ValueError` if they share a dtype.
+- Unknown dtype strings raise `ValueError` with a list of valid options.
+- Raises `ValueError` when no columns match (never returns an empty frame silently).
+- Column order in the result always matches the original frame.
 
 Or compose them all into a **pipeline**:
 
