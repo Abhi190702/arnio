@@ -771,14 +771,39 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
         ++row_count;
 
         // Intermediate Progress Signal
-        if (config.progress_hook != nullptr && row_count > 0 && row_count % config.progress_interval_rows == 0) {
-            config.progress_hook(row_count, (size_t)file.tellg(), std::nullopt, false);
-        }
-    } // while loop ends here
+    if (config.progress_hook != nullptr &&
+        row_count > 0 &&
+        row_count % config.progress_interval_rows == 0) {
+
+        std::streampos pos = file.tellg();
+
+        size_t bytes_read =
+            (pos == std::streampos(-1))
+                ? 0
+                : static_cast<size_t>(pos);
+
+        config.progress_hook(
+            row_count,
+            bytes_read,
+            std::nullopt,
+            false);
+    }
+    // while loop ends here
 
     // Final Progress Signal (True means done!)
     if (config.progress_hook != nullptr) {
-        config.progress_hook(row_count, (size_t)file.tellg(), std::nullopt, true);
+        std::streampos pos = file.tellg();
+
+        size_t bytes_read =
+            (pos == std::streampos(-1))
+                ? 0
+                : static_cast<size_t>(pos);
+
+        config.progress_hook(
+            row_count,
+            bytes_read,
+            std::nullopt,
+            true);
     }
 
     // Safely close the file at the very end
