@@ -3783,7 +3783,9 @@ class TestValidateExistingColumnSequence:
         available = ["col1", "col2", "col3"]
         with pytest.raises(KeyError, match="Missing columns"):
             _validate_existing_column_sequence(
-                ["col1", "nonexistent"], available_columns=available, argument_name="columns"
+                ["col1", "nonexistent"],
+                available_columns=available,
+                argument_name="columns",
             )
 
     def test_missing_columns_use_custom_error(self):
@@ -3799,7 +3801,10 @@ class TestValidateExistingColumnSequence:
     def test_empty_sequence_allow_empty_false_raises(self):
         with pytest.raises(ValueError, match="cannot be empty"):
             _validate_existing_column_sequence(
-                [], available_columns=["col1"], argument_name="columns", allow_empty=False
+                [],
+                available_columns=["col1"],
+                argument_name="columns",
+                allow_empty=False,
             )
 
     def test_empty_sequence_allow_empty_true_returns_empty(self):
