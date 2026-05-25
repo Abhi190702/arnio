@@ -447,6 +447,15 @@ def test_auto_clean_dry_run_returns_report_without_mutating():
     assert frame.dtypes["active"] == "string"
 
 
+def test_auto_clean_dry_run_with_return_report_raises():
+    frame = ar.from_pandas(pd.DataFrame({"name": [" Alice ", " Bob "]}))
+
+    with pytest.raises(
+        ValueError, match="return_report=True cannot be used with dry_run=True"
+    ):
+        ar.auto_clean(frame, dry_run=True, return_report=True)
+
+
 def test_auto_clean_rejects_unknown_mode(sample_csv):
     frame = ar.read_csv(sample_csv)
 
@@ -1120,6 +1129,40 @@ def test_report_to_markdown_basic(tmp_path):
     assert "| id | int64 | identifier |" in md
 
 
+def test_report_to_markdown_writes_to_stringio(sample_csv, tmp_path):
+    import io
+
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+    buffer = io.StringIO()
+
+    result = report.to_markdown(output=buffer)
+
+    assert result is None
+    assert buffer.getvalue() == report.to_markdown()
+    assert "# Data Quality Report" in buffer.getvalue()
+
+
+def test_report_to_markdown_writes_to_text_file_handle(sample_csv, tmp_path):
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+    out_path = tmp_path / "report.md"
+
+    with out_path.open("w", encoding="utf-8") as f:
+        result = report.to_markdown(output=f)
+
+    assert result is None
+    assert out_path.read_text(encoding="utf-8") == report.to_markdown()
+
+
+def test_report_to_markdown_rejects_invalid_output(sample_csv, tmp_path):
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+
+    with pytest.raises(TypeError, match="output must be a writable text stream"):
+        report.to_markdown(output=object())
+
+
 def test_report_to_markdown_includes_uniqueness_metrics(tmp_path):
     path = tmp_path / "unique_metrics.csv"
 
@@ -1389,6 +1432,51 @@ def test_data_quality_report_to_html(tmp_path):
     report.to_html(file_path=str(out_path))
     assert out_path.exists()
     assert out_path.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
+
+
+def test_report_to_html_writes_to_stringio(sample_csv, tmp_path):
+    import io
+
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+    buffer = io.StringIO()
+
+    result = report.to_html(output=buffer)
+
+    assert result is None
+    assert buffer.getvalue() == report.to_html()
+    assert "<html" in buffer.getvalue()
+
+
+def test_report_to_html_writes_to_text_file_handle(sample_csv, tmp_path):
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+    out_path = tmp_path / "report.html"
+
+    with out_path.open("w", encoding="utf-8") as f:
+        result = report.to_html(output=f)
+
+    assert result is None
+    assert out_path.read_text(encoding="utf-8") == report.to_html()
+
+
+def test_report_to_html_rejects_invalid_output(sample_csv, tmp_path):
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+
+    with pytest.raises(TypeError, match="output must be a writable text stream"):
+        report.to_html(output=object())
+
+
+def test_report_to_html_preserves_file_path_behavior(sample_csv, tmp_path):
+    frame = ar.read_csv(sample_csv)
+    report = ar.profile(frame)
+    out_path = tmp_path / "report.html"
+
+    result = report.to_html(file_path=str(out_path))
+
+    assert result == report.to_html()
+    assert out_path.read_text(encoding="utf-8") == result
 
 
 def test_data_quality_report_to_html_focused(tmp_path):
@@ -2158,6 +2246,93 @@ def test_data_quality_report_to_json_returns_valid_json():
 
     assert parsed["row_count"] == 10
     assert parsed["column_count"] == 1
+
+
+def test_data_quality_report_to_json_writes_to_stringio():
+    import io
+
+    report = ar.profile(
+        ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "name": ["Alice", "Bob"],
+                    "age": [30, 40],
+                }
+            )
+        )
+    )
+    buffer = io.StringIO()
+
+    result = report.to_json(output=buffer)
+
+    assert result is None
+    assert buffer.getvalue() == report.to_json()
+
+
+def test_data_quality_report_to_json_writes_to_text_file_handle(tmp_path):
+    report = ar.profile(
+        ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "name": ["Alice", "Bob"],
+                    "age": [30, 40],
+                }
+            )
+        )
+    )
+    out_path = tmp_path / "report.json"
+
+    with out_path.open("w", encoding="utf-8") as f:
+        result = report.to_json(output=f, indent=2)
+
+    assert result is None
+    assert out_path.read_text(encoding="utf-8") == report.to_json(indent=2)
+
+
+def test_data_quality_report_to_json_rejects_invalid_output():
+    report = ar.profile(
+        ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "name": ["Alice", "Bob"],
+                    "age": [30, 40],
+                }
+            )
+        )
+    )
+
+    with pytest.raises(TypeError, match="output must be a writable text stream"):
+        report.to_json(output=object())
+
+
+def test_data_quality_report_to_json_output_preserves_options():
+    import io
+
+    report = ar.profile(
+        ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "name": ["Alice", "Bob"],
+                    "age": [30, 40],
+                }
+            )
+        )
+    )
+    buffer = io.StringIO()
+
+    result = report.to_json(
+        output=buffer,
+        indent=2,
+        redact_sample_values=True,
+        exclude_columns=["age"],
+    )
+
+    assert result is None
+    assert buffer.getvalue() == report.to_json(
+        indent=2,
+        redact_sample_values=True,
+        exclude_columns=["age"],
+    )
 
 
 def test_data_quality_report_to_json_indent():

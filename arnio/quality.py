@@ -263,14 +263,15 @@ class DataQualityReport:
         indent: int | None = None,
         redact_sample_values: bool = False,
         exclude_columns: list[str] | set[str] | tuple[str, ...] | None = None,
-    ) -> str:
+        output: Any | None = None,
+    ) -> str | None:
         """Return the report as a JSON string.
 
         Example:
         report.to_json(indent=2)
         """
 
-        return json.dumps(
+        json_out = json.dumps(
             self.to_dict(
                 redact_sample_values=redact_sample_values,
                 exclude_columns=exclude_columns,
@@ -278,7 +279,16 @@ class DataQualityReport:
             indent=indent,
         )
 
-    def to_markdown(self) -> str:
+        if output is None:
+            return json_out
+
+        if not hasattr(output, "write"):
+            raise TypeError("output must be a writable text stream")
+
+        output.write(json_out)
+        return None
+
+    def to_markdown(self, output: Any | None = None) -> str | None:
         """Return a GitHub-friendly Markdown report."""
 
         lines: list[str] = []
@@ -345,9 +355,22 @@ class DataQualityReport:
 
             lines.append("")
 
-        return "\n".join(lines)
+        markdown = "\n".join(lines)
 
-    def to_html(self, file_path: str | None = None) -> str:
+        if output is None:
+            return markdown
+
+        if not hasattr(output, "write"):
+            raise TypeError("output must be a writable text stream")
+
+        output.write(markdown)
+        return None
+
+    def to_html(
+        self,
+        file_path: str | None = None,
+        output: Any | None = None,
+    ) -> str | None:
         """Return a self-contained, dependency-free HTML data quality report.
 
         In notebook environments, ``DataQualityReport`` will render a compact dashboard
@@ -359,7 +382,14 @@ class DataQualityReport:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_out)
 
-        return html_out
+        if output is None:
+            return html_out
+
+        if not hasattr(output, "write"):
+            raise TypeError("output must be a writable text stream")
+
+        output.write(html_out)
+        return None
 
     def _repr_html_(self) -> str:  # pragma: no cover - exercised via tests directly
         """Notebook-friendly HTML representation."""
@@ -826,6 +856,11 @@ def profile(
     >>> report = ar.profile(frame, sample_size=3)
     >>> report.summary()
     """
+    if not isinstance(frame, ArFrame):
+        raise TypeError(
+            f"profile() expects an ArFrame, got {type(frame).__name__}. Use arnio.from_pandas() first."
+        )
+
     if not isinstance(sample_size, int) or isinstance(sample_size, bool):
         raise TypeError("sample_size must be an integer")
     if sample_size < 0:
@@ -1655,6 +1690,11 @@ def auto_clean(
     >>> clean, explanation = ar.auto_clean(frame, explain=True)
     >>> print(explanation)
     """
+    if not isinstance(frame, ArFrame):
+        raise TypeError(
+            f"auto_clean() expects an ArFrame, got {type(frame).__name__}. Use arnio.from_pandas() first."
+        )
+
     if mode not in {"safe", "strict"}:
         raise ValueError("mode must be 'safe' or 'strict'")
 
@@ -1667,11 +1707,11 @@ def auto_clean(
 
     if dry_run and explain:
         raise ValueError("explain=True cannot be used with dry_run=True")
+    if dry_run and return_report:
+        raise ValueError("return_report=True cannot be used with dry_run=True")
 
     report = profile(frame)
     if dry_run:
-        if return_report:
-            return frame, report
         return report
 
     result = frame
