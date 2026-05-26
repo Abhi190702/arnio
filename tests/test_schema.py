@@ -3228,16 +3228,15 @@ def test_schema_field_only_roundtrip_with_rules_present():
     assert list(restored.unique) == ["id"]
     assert not restored.rules
 
+    def test_schema_from_json_rejects_invalid_dtype_string():
+        payload = {
+            "fields": {"x": {"dtype": "bogus"}},
+            "strict": False,
+            "unique": None,
+        }
 
-def test_schema_from_json_rejects_invalid_dtype_string():
-    payload = {
-        "fields": {"x": {"dtype": "bogus"}},
-        "strict": False,
-        "unique": None,
-    }
-
-    with pytest.raises(ValueError):
-        ar.Schema.from_json(payload)
+        with pytest.raises(ValueError):
+            ar.Schema.from_json(payload)
 
 
 def test_schema_from_json_rejects_non_string_dtype():
