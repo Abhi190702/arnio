@@ -1055,6 +1055,25 @@ void CsvChunkReader::resolve_col_indices() {
     }
 }
 
+void CsvChunkReader::apply_explicit_dtypes() {
+    const CsvConfig& config = parser_.config();
+    if (config.dtype.has_value()) {
+        for (const auto& [column_name, dtype_name] : config.dtype.value()) {
+            auto header_it = std::find(header_.begin(), header_.end(), column_name);
+            if (header_it == header_.end()) {
+                throw std::runtime_error("Column not found in dtype mapping: " + column_name);
+            }
+            size_t column_index = static_cast<size_t>(std::distance(header_.begin(), header_it));
+            bool selected = std::find(col_indices_.begin(), col_indices_.end(), column_index) !=
+                            col_indices_.end();
+            if (!selected) {
+                throw std::runtime_error("dtype specified for non-selected column: " + column_name);
+            }
+            col_types_[column_index] = string_to_dtype(dtype_name);
+        }
+    }
+}
+
 bool CsvChunkReader::read_one_data_row(std::vector<std::string>& fields_out,
                                        const std::string& on_bad_lines,
                                        std::vector<BadRow>* bad_rows_out) {
@@ -1182,6 +1201,7 @@ void CsvChunkReader::open(const std::string& path) {
         expected_cols_ = header_.size();
         resolve_col_indices();
         col_types_.assign(header_.size(), DType::NULL_TYPE);
+        apply_explicit_dtypes();
     }
 
     const size_t skip_target = config.skip_rows.value_or(0);
@@ -1247,19 +1267,28 @@ std::optional<CsvParseResult> CsvChunkReader::next_chunk(size_t chunksize,
         expected_cols_ = header_.size();
         resolve_col_indices();
         col_types_.assign(header_.size(), DType::NULL_TYPE);
+        apply_explicit_dtypes();
     }
 
     if (!schema_locked_) {
         for (const auto& row : raw_data) {
             for (size_t ci : col_indices_) {
                 if (ci < row.size()) {
+                    if (config.dtype.has_value() && config.dtype.value().count(header_[ci]) > 0) {
+                        continue;
+                    }
                     DType inferred = parser_.infer_type(row[ci]);
                     col_types_[ci] = CsvParser::promote_type(col_types_[ci], inferred);
                 }
             }
         }
-        for (auto& dt : col_types_) {
-            if (dt == DType::NULL_TYPE) dt = DType::STRING;
+        for (size_t ci = 0; ci < col_types_.size(); ++ci) {
+            if (config.dtype.has_value() && config.dtype.value().count(header_[ci]) > 0) {
+                continue;
+            }
+            if (col_types_[ci] == DType::NULL_TYPE) {
+                col_types_[ci] = DType::STRING;
+            }
         }
         schema_locked_ = true;
     }
