@@ -944,6 +944,16 @@ Most operations below run natively in C++. Currently, `filter_rows`, `replace_va
 | `trim_column_names` | Strip leading/trailing whitespace from column names | `ar.trim_column_names(frame)` |
 | `select_columns` | Return a new frame containing only selected columns | `ar.select_columns(frame, ["id", "name"])` |
 
+### Rolling Windows
+You can easily extract overlapping sequential windows from 1D data using the standalone `rolling_window` helper:
+
+```python
+import arnio as ar
+
+data = [1.0, 2.0, 3.0, 4.0, 5.0]
+windows = ar.rolling_window(data, window_size=3, stride=1)
+# Returns: [[1.0, 2.0, 3.0], [2.0, 3.0, 4.0], [3.0, 4.0, 5.0]]
+
 #### `ArFrame.select_dtypes` — type-based column selection
 
 Returns a **new `ArFrame`** containing only the columns whose dtype matches the filter. Raises `ValueError` if no columns match.
