@@ -3740,7 +3740,6 @@ class TestValidateStringMapping:
         with pytest.raises(
             TypeError, match="must be a mapping of string keys to strings"
         ):
-
             _validate_string_mapping([("a", "b")], argument_name="mapping")
 
     def test_invalid_non_string_keys_raise_type_error(self):
@@ -3766,14 +3765,19 @@ class TestValidateStringMapping:
         assert result == {"a": "value1", "b": "value2"}
 
     def test_empty_mapping_allow_empty_true(self):
-        result = _validate_string_mapping({}, argument_name="mapping", allow_empty=True)
+        result = _validate_string_mapping(
+            {}, argument_name="mapping", allow_empty=True
+        )
         assert result == {}
 
     def test_empty_mapping_allow_empty_false_raises(self):
         with pytest.raises(ValueError, match="must not be empty"):
-            _validate_string_mapping({}, argument_name="mapping", allow_empty=False)
+            _validate_string_mapping(
+                {}, argument_name="mapping", allow_empty=False
+            )
 
-   def test_winsorize_string_subset_rejected():
+
+def test_winsorize_string_subset_rejected():
     frame = ar.from_pandas(pd.DataFrame({"age": [1, 2, 3]}))
 
     with pytest.raises(TypeError, match="subset must be a sequence"):
