@@ -4,14 +4,15 @@ ArFrame — the core data container wrapping the C++ Frame.
 
 Copy and Mutation Semantics
 ---------------------------
-All ArFrame methods that transform or slice data return a **new ArFrame**.
-The original frame is never modified. This is the guaranteed contract for
-all public methods in this module:
+The following ArFrame methods have been audited and are guaranteed to return
+a **new ArFrame** without modifying the original frame:
 
 - head()           → returns new ArFrame, original unchanged
 - tail()           → returns new ArFrame, original unchanged
 - select_columns() → returns new ArFrame, original unchanged
 - select_dtypes()  → returns new ArFrame, original unchanged
+
+No other methods in this module have been audited for copy semantics.
 
 Example::
 
@@ -311,7 +312,7 @@ class ArFrame:
 
         col_dtypes = self.dtypes
         matched: list[str] = []
-        for col in self.columns:  # iterate columns to preserve original order
+        for col in self.columns:
             dtype = col_dtypes[col]
             if include_set is not None and dtype not in include_set:
                 continue
@@ -430,14 +431,12 @@ class ArFrame:
 
         actual_n = min(n, num_rows)
 
-        # Pull only the first `actual_n` values per column — no full conversion
         col_names = self.columns
         col_data = [
             [self._frame.column_by_index(i).at(r) for r in range(actual_n)]
             for i in range(num_cols)
         ]
 
-        # Calculate column widths for alignment
         col_widths = [
             max(
                 len(col_names[i]),
@@ -446,11 +445,9 @@ class ArFrame:
             for i in range(num_cols)
         ]
 
-        # Build header and separator
         header = "  ".join(col_names[i].ljust(col_widths[i]) for i in range(num_cols))
         separator = "  ".join("-" * col_widths[i] for i in range(num_cols))
 
-        # Build rows
         rows = [
             "  ".join(str(col_data[i][r]).ljust(col_widths[i]) for i in range(num_cols))
             for r in range(actual_n)
