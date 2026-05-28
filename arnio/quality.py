@@ -233,6 +233,14 @@ class DataQualityReport:
 
             exclude_columns = set(exclude_columns)
 
+        unknown_exclude_columns = sorted(exclude_columns - set(self.columns))
+        if unknown_exclude_columns:
+            available_columns = ", ".join(self.columns) or "<none>"
+            raise KeyError(
+                "Unknown exclude_columns: "
+                f"{unknown_exclude_columns}. Available columns: {available_columns}"
+            )
+
         def _redact_reason(reason: str | None) -> str | None:
             if not reason or not exclude_columns:
                 return reason
@@ -1113,8 +1121,15 @@ def profile(
         approx_top_values_min_ratio, bool
     ):
         raise TypeError("approx_top_values_min_ratio must be a float")
+
+    if not math.isfinite(approx_top_values_min_ratio):
+        raise ValueError(
+            "approx_top_values_min_ratio must be a finite number between 0 and 1"
+        )
+
     if approx_top_values_min_ratio < 0 or approx_top_values_min_ratio > 1:
         raise ValueError("approx_top_values_min_ratio must be between 0 and 1")
+
     if not isinstance(approx_top_values_sample_size, int) or isinstance(
         approx_top_values_sample_size, bool
     ):
