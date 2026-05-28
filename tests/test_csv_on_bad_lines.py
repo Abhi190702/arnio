@@ -365,7 +365,7 @@ class TestOnBadLinesQuotedDelimiters:
         assert "CSV row 3 has 2 fields; expected 3" in msg
 
         df = ar.to_pandas(frame)
-        assert df["a"].iloc[0] == ""
+        assert df["a"].isna().iloc[0]
 
 
 class TestOnBadLinesMultilineRecords:
