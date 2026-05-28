@@ -872,8 +872,8 @@ std::vector<std::pair<std::string, std::string>> CsvReader::scan_schema(
     std::vector<std::string> header;
 
     std::vector<std::string> first_row;
-    
-// --- NEW LOGIC: Advance the reader past the skipped rows ---
+
+// Advance the reader past the skipped rows
     if (config.skip_rows.has_value()) {
         size_t to_skip = config.skip_rows.value();
         size_t skipped = 0;
@@ -881,7 +881,6 @@ std::vector<std::pair<std::string, std::string>> CsvReader::scan_schema(
             ++skipped;
         }
     }
-    // -----------------------------------------------------------
 
     if (record_reader.read(line)) {
         strip_utf8_bom(line);

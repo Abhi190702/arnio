@@ -937,7 +937,7 @@ def scan_csv(
     config.encoding_errors = encoding_errors
 
     if skiprows is not None:
-      config.skip_rows = _validate_skip_rows(skiprows)
+        config.skip_rows = _validate_skip_rows(skiprows)
     if null_values is not None:
         config.null_values = _validate_null_values(null_values)
 
