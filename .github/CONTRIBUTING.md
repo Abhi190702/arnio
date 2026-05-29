@@ -75,9 +75,7 @@ ar.register_step("remove_special_chars", remove_special_chars)
 
 ### Calling a step with custom parameters
 
-If your step accepts parameters, pass them as a tuple `("step_name", {"param": value})`
-when calling `pipeline()`. The no-params form must also use a tuple `("step_name",)` —
-a plain string is not valid pipeline syntax.
+If your step accepts parameters, pass them as a tuple `("step_name", {"param": value})` when calling `pipeline()`. Every step must use tuple syntax — always wrap the step name in a tuple, even when no parameters are needed.
 
 ```python
 import arnio as ar
@@ -92,7 +90,7 @@ ar.register_step("remove_special_chars", remove_special_chars)
 
 frame = ar.read_csv("data.csv")
 
-# Without parameters — use a single-element tuple
+# Without parameters — wrap step name in a single-element tuple
 result = ar.pipeline(frame, [
     ("remove_special_chars",)
 ])
