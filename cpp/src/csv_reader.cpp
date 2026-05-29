@@ -334,6 +334,70 @@ void validate_row_width(size_t row_number, size_t expected, size_t actual) {
                              std::to_string(expected));
 }
 
+void generate_synthetic_header(std::vector<std::string>& header, size_t column_count) {
+    header.clear();
+    header.reserve(column_count);
+    for (size_t i = 0; i < column_count; ++i) header.push_back("col_" + std::to_string(i));
+    validate_header(header);
+}
+
+std::vector<size_t> resolve_col_indices(const std::vector<std::string>& header,
+                                        const CsvConfig& config) {
+    std::vector<size_t> col_indices;
+    if (config.usecols.has_value()) {
+        for (const auto& name : config.usecols.value()) {
+            auto it = std::find(header.begin(), header.end(), name);
+            if (it == header.end()) throw std::runtime_error("Column not found: " + name);
+            col_indices.push_back(static_cast<size_t>(std::distance(header.begin(), it)));
+        }
+    } else {
+        for (size_t i = 0; i < header.size(); ++i) col_indices.push_back(i);
+    }
+    return col_indices;
+}
+
+struct ExplicitDTypeResult {
+    std::vector<bool> explicit_columns;
+    bool covers_selected_columns = false;
+};
+
+ExplicitDTypeResult apply_explicit_dtypes(const CsvConfig& config,
+                                          const std::vector<std::string>& header,
+                                          const std::vector<size_t>& col_indices,
+                                          std::vector<DType>& col_types) {
+    ExplicitDTypeResult result{std::vector<bool>(col_types.size(), false), false};
+
+    if (!config.dtype.has_value()) {
+        return result;
+    }
+
+    const auto& dtype = config.dtype.value();
+    for (const auto& [column_name, dtype_name] : dtype) {
+        auto header_it = std::find(header.begin(), header.end(), column_name);
+        if (header_it == header.end()) {
+            throw std::runtime_error("Column not found in dtype mapping: " + column_name);
+        }
+        size_t column_index = static_cast<size_t>(std::distance(header.begin(), header_it));
+        bool selected =
+            std::find(col_indices.begin(), col_indices.end(), column_index) != col_indices.end();
+        if (!selected) {
+            throw std::runtime_error("dtype specified for non-selected column: " + column_name);
+        }
+        col_types[column_index] = string_to_dtype(dtype_name);
+        result.explicit_columns[column_index] = true;
+    }
+
+    result.covers_selected_columns = !col_indices.empty();
+    for (size_t ci : col_indices) {
+        if (ci >= result.explicit_columns.size() || !result.explicit_columns[ci]) {
+            result.covers_selected_columns = false;
+            break;
+        }
+    }
+
+    return result;
+}
+
 // Detect if a numeric string has leading zeros that indicate it's likely an
 // identifier (ZIP code, account ID, product code, etc.) rather than a true
 // numeric value. Identifiers with leading zeros should be preserved as strings.
@@ -703,12 +767,16 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
     std::string line;
     std::vector<std::string> header;
     std::vector<DType> col_types;
+    std::vector<size_t> col_indices;
+    std::vector<bool> explicit_dtype_columns;
     std::optional<size_t> expected_cols;
+    bool inference_pass_ran = true;
 
     // =================================================================
-    // PASS 1: Infer column types from ALL data rows (nothing stored).
-    // This preserves the original full-read type-inference contract.
-    // We also collect bad_rows here using the new on_bad_lines logic.
+    // PASS 1: Infer column types from data rows when needed (nothing stored).
+    // Fully explicit dtype mappings can skip value type inference once
+    // header/usecols resolution proves every selected output column is typed.
+    // When this pass is skipped, pass 2 owns bad-row collection.
     // =================================================================
     {
         std::ifstream file;
@@ -746,6 +814,12 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
 
         if (config.has_header && !header.empty()) {
             col_types.assign(header.size(), DType::NULL_TYPE);
+            col_indices = resolve_col_indices(header, config);
+            auto dtype_result = apply_explicit_dtypes(config, header, col_indices, col_types);
+            explicit_dtype_columns = std::move(dtype_result.explicit_columns);
+            if (dtype_result.covers_selected_columns) {
+                inference_pass_ran = false;
+            }
         }
 
         size_t row_count = 0;
@@ -754,7 +828,7 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
             reusable_fields.reserve(expected_cols.value());
         }
 
-        while (record_reader.read(line, line_number)) {
+        while (inference_pass_ran && record_reader.read(line, line_number)) {
             ++record_number;
 
             if (config.nrows.has_value() && (row_count + bad_rows.size()) >= config.nrows.value()) {
@@ -789,10 +863,22 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
 
             if (col_types.empty()) {
                 col_types.assign(reusable_fields.size(), DType::NULL_TYPE);
+                if (!config.has_header) {
+                    generate_synthetic_header(header, col_types.size());
+                    col_indices = resolve_col_indices(header, config);
+                    auto dtype_result =
+                        apply_explicit_dtypes(config, header, col_indices, col_types);
+                    explicit_dtype_columns = std::move(dtype_result.explicit_columns);
+                    if (dtype_result.covers_selected_columns) {
+                        inference_pass_ran = false;
+                        break;
+                    }
+                }
             }
 
             for (size_t ci = 0; ci < col_types.size(); ++ci) {
                 if (ci < reusable_fields.size()) {
+                    if (ci < explicit_dtype_columns.size() && explicit_dtype_columns[ci]) continue;
                     col_types[ci] = CsvParser::promote_type(
                         col_types[ci], parser_.infer_type(reusable_fields[ci]));
                 }
@@ -808,8 +894,9 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
 
     // For headerless CSVs generate synthetic column names.
     if (!config.has_header && !col_types.empty()) {
-        for (size_t i = 0; i < col_types.size(); ++i) header.push_back("col_" + std::to_string(i));
-        validate_header(header);
+        if (header.empty()) {
+            generate_synthetic_header(header, col_types.size());
+        }
     }
 
     // Zero-data-row edge case (headerless empty body).
@@ -817,32 +904,13 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
         return CsvParseResult{Frame(std::vector<Column>{}), std::move(bad_rows)};
     }
 
-    size_t num_cols = header.size();
-    std::vector<size_t> col_indices;
-    if (config.usecols.has_value()) {
-        for (const auto& name : config.usecols.value()) {
-            auto it = std::find(header.begin(), header.end(), name);
-            if (it == header.end()) throw std::runtime_error("Column not found: " + name);
-            col_indices.push_back(static_cast<size_t>(std::distance(header.begin(), it)));
-        }
-    } else {
-        for (size_t i = 0; i < num_cols; ++i) col_indices.push_back(i);
+    if (col_indices.empty()) {
+        col_indices = resolve_col_indices(header, config);
     }
 
-    if (config.dtype.has_value()) {
-        for (const auto& [column_name, dtype_name] : config.dtype.value()) {
-            auto header_it = std::find(header.begin(), header.end(), column_name);
-            if (header_it == header.end()) {
-                throw std::runtime_error("Column not found in dtype mapping: " + column_name);
-            }
-            size_t column_index = static_cast<size_t>(std::distance(header.begin(), header_it));
-            bool selected = std::find(col_indices.begin(), col_indices.end(), column_index) !=
-                            col_indices.end();
-            if (!selected) {
-                throw std::runtime_error("dtype specified for non-selected column: " + column_name);
-            }
-            col_types[column_index] = string_to_dtype(dtype_name);
-        }
+    if (explicit_dtype_columns.empty()) {
+        auto dtype_result = apply_explicit_dtypes(config, header, col_indices, col_types);
+        explicit_dtype_columns = std::move(dtype_result.explicit_columns);
     }
 
     // Initialise output columns with the statically-known types.
@@ -903,7 +971,14 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
                 const size_t expected = expected_cols2.value();
                 const size_t actual = reusable_fields2.size();
                 if (actual > expected || config.mode == "strict") {
-                    // Already recorded in pass 1, just count to skip and enforce nrows properly.
+                    if (!inference_pass_ran) {
+                        if (on_bad_lines == "error") {
+                            validate_row_width(record_number2, expected, actual);
+                        }
+                        bad_rows.push_back(BadRow{record_number2, expected, actual});
+                    }
+                    // Already recorded in pass 1 when it ran; either way count to
+                    // skip and enforce nrows properly.
                     ++bad_row_count2;
                     continue;
                 }
@@ -1103,11 +1178,17 @@ Frame CsvChunkReader::build_frame(const std::vector<std::vector<std::string>>& r
     std::vector<Column> columns;
     columns.reserve(col_indices_.size());
     for (size_t ci : col_indices_) {
-        Column col(header_[ci], col_types_[ci]);
+        // A column whose type is still NULL_TYPE has been all-null in every chunk
+        // seen so far.  Fall back to STRING so the Python layer always receives a
+        // concrete type.  col_types_[ci] is intentionally left as NULL_TYPE so
+        // subsequent chunks can still promote it to the correct type.
+        DType effective_type =
+            (col_types_[ci] == DType::NULL_TYPE) ? DType::STRING : col_types_[ci];
+        Column col(header_[ci], effective_type);
         for (const auto& row : raw_data) {
             if (ci < row.size()) {
                 const std::string& raw_value = row[ci];
-                CellValue parsed = parser_.parse_value(raw_value, col_types_[ci]);
+                CellValue parsed = parser_.parse_value(raw_value, effective_type);
 
                 // Fail-fast validation for locked schema in subsequent chunks
                 if (validate_locked_schema && std::holds_alternative<std::monostate>(parsed)) {
@@ -1258,10 +1339,23 @@ std::optional<CsvParseResult> CsvChunkReader::next_chunk(size_t chunksize,
                 }
             }
         }
-        for (auto& dt : col_types_) {
-            if (dt == DType::NULL_TYPE) dt = DType::STRING;
+        // Only lock the schema once every selected column has been resolved to a
+        // concrete type.  Columns that are still NULL_TYPE were all-null in this
+        // chunk; leaving them unlocked allows the next chunk to infer the real
+        // type instead of permanently (and silently) casting them to STRING.
+        // If we reach the end of the file with a column still NULL_TYPE it will
+        // be emitted as STRING by build_frame, which is the correct fallback for
+        // a genuinely all-null column.
+        bool all_resolved = true;
+        for (size_t ci : col_indices_) {
+            if (col_types_[ci] == DType::NULL_TYPE) {
+                all_resolved = false;
+                break;
+            }
         }
-        schema_locked_ = true;
+        if (all_resolved) {
+            schema_locked_ = true;
+        }
     }
 
     rows_read_total_ += raw_data.size() + bad_rows.size();

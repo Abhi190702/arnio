@@ -49,6 +49,7 @@ from .exceptions import (
     CsvReadError,
     JsonlReadError,
     PipelineStepError,
+    SchemaValidationError,
     TypeCastError,
     UnknownStepError,
 )
@@ -70,6 +71,7 @@ from .pipeline import (
     pipeline,
     register_step,
     reset_steps,
+    unregister_step,
 )
 from .quality import (
     CleanExplanation,
@@ -169,6 +171,7 @@ __all__ = [
     # Pipeline
     "pipeline",
     "register_step",
+    "unregister_step",
     "get_builtin_step_signatures",
     "list_steps",
     "PipelineContext",
@@ -214,6 +217,7 @@ __all__ = [
     "JsonlReadError",
     "TypeCastError",
     "PipelineStepError",
+    "SchemaValidationError",
     "normalize_unicode",
     "Regex",
     "Custom",
