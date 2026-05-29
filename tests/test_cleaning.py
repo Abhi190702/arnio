@@ -3858,17 +3858,12 @@ class TestValidateStringMapping:
         assert result == {"a": "value1", "b": "value2"}
 
     def test_empty_mapping_allow_empty_true(self):
-        result = _validate_string_mapping(
-            {}, argument_name="mapping", allow_empty=True
-        )
+        result = _validate_string_mapping({}, argument_name="mapping", allow_empty=True)
         assert result == {}
 
     def test_empty_mapping_allow_empty_false_raises(self):
         with pytest.raises(ValueError, match="must not be empty"):
-        fix-winsorize-validation-1426
-            _validate_string_mapping(
-                {}, argument_name="mapping", allow_empty=False
-            )
+            _validate_string_mapping({}, argument_name="mapping", allow_empty=False)
 
 
 def test_winsorize_string_subset_rejected():
@@ -3897,8 +3892,6 @@ def test_winsorize_boolean_lower():
 
     with pytest.raises(TypeError, match="lower must not be bool"):
         ar.winsorize_outliers(frame, lower=False)
-
-            _validate_string_mapping({}, argument_name="mapping", allow_empty=False)
 
 
 class TestCleanColumnNames:
@@ -3949,4 +3942,3 @@ class TestCleanColumnNames:
         frame = from_pandas(df)
         result = ar.pipeline(frame, [("clean_column_names", {"case_type": "upper"})])
         assert to_pandas(result).columns.tolist() == ["MY_NAME", "AGE"]
-

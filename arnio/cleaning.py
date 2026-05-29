@@ -722,7 +722,6 @@ def winsorize_outliers(
     >>> frame = ar.read_csv("data.csv")
     >>> clean = ar.winsorize_outliers(frame, lower=0.01, upper=0.99, subset=["revenue"])
     """
-     
 
     if isinstance(lower, bool):
         raise TypeError("lower must not be bool")
@@ -735,7 +734,6 @@ def winsorize_outliers(
 
     if not isinstance(upper, (int, float)):
         raise TypeError("upper must be a numeric value")
-
 
     frame, _ = _validate_frame(frame)
 
@@ -791,6 +789,7 @@ def winsorize_outliers(
         )
 
     return from_pandas(df)
+
 
 def strip_whitespace(
     frame: ArFrame,
