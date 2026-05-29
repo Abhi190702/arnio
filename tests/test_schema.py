@@ -2962,11 +2962,65 @@ def test_validate_max_errors_zero_valid_data():
         ar.validate(frame, schema, max_errors=0)
 
 
-def test_url_uppercase_scheme_accepted_with_lowercase_allowed(tmp_path):
-    path = tmp_path / "urls.csv"
-    path.write_text("url\nHTTPS://example.com\n")
-    result = ar.validate(ar.read_csv(path), {"url": ar.URL(allowed_schemes=["https"])})
-    assert result.passed
+<<<<<<< HEAD
+def test_validation_result_to_markdown_returns_string():
+    frame = ar.from_dict({"x":[1,2]})
+    result = ar.validate(frame, ar.Schema({"x": ar.Field(dtype="int64")}))
+    md = result.to_markdown()
+    assert isinstance(md, str)
+
+def test_validation_result_to_markdown_stringio():
+    frame = ar.from_dict({"x":[1,2]})
+    result = ar.validate(frame, ar.Schema({"x": ar.Field(dtype="int64")}))
+    buffer = io.StringIO()
+    ret = result.to_markdown(output=buffer)
+    assert ret is None
+    assert len(buffer.getvalue()) > 0
+
+def test_validation_result_to_markdown_invalid_output():
+    frame = ar.from_dict({"x":[1,2]})
+    result = ar.validate(frame, ar.Schema({"x": ar.Field(dtype="int64")})) 
+    with pytest.raises(TypeError):
+        result.to_markdown(output=123)
+
+def test_schema_diff_to_markdown_returns_string():
+    schema1 = ar.Schema({"x": ar.Field(dtype="int64")})
+    schema2 = ar.Schema({"x": ar.Field(dtype="float64")})
+    diff = ar.diff_schema(chema1,schema2)
+    md = diff.to_markdown()
+    assert isinstance(md, str)  
+
+
+def test_schema_diff_to_markdown_stringio():
+    schema1 = ar.Schema({"x": ar.Field(dtype="int64")})
+    schema2 = ar.Schema({"x": ar.Field(dtype="float64")})
+    diff = ar.diff_schema(chema1,schema2)
+    buffer = io.StringIO()
+    ret = diff.to_markdown(output=buffer)
+    assert ret is None
+    assert len(buffer.getvalue()) > 0
+
+
+def test_schema_diff_to_markdown_invalid_output():
+    schema1 = ar.Schema({"x": ar.Field(dtype="int64")})
+    schema2 = ar.Schema({"x": ar.Field(dtype="float64")})
+    diff = ar.diff_schema(chema1,schema2)
+    with pytest.raises(TypeError):
+        diff.to_markdown(output=123)
+
+def test_validation_result_to_markdown_file_output(tmp_path):
+    frame = ar.from_dict({"x":[1,2]})
+    result = ar.validate(frame, ar.Schema({"x": ar.Field(dtype="int64")}))
+    f = tmp_path / "out.md"
+    with open(f, "w") as file:
+        ret = result.to_markdown(output=file)
+    assert f.read_text() != ""
+
+=======
+def test_normalize_sequence_homogeneous_strings():
+    schema = ar.Schema({"status": ar.String(allowed={"active", "inactive", "pending"})})
+    payload = json.loads(schema.to_json())
+    assert payload["fields"]["status"]["allowed"] == ["active", "inactive", "pending"]
 
 
 def test_url_mixed_case_scheme_accepted(tmp_path):
@@ -3140,19 +3194,4 @@ def test_from_json_round_trip_is_accepted():
     recovered = ar.Schema.from_json(original.to_json())
     assert recovered.fields["email"].nullable is False
     assert recovered.unique == ["email"]
-
-
-def test_required_if_missing_column_preserves_warning_severity():
-    frame = ar.from_dict({"x": [""]})
-    schema = ar.Schema({"x": ar.String(required_if=("flag", True), severity="warning")})
-    result = ar.validate(frame, schema)
-    issue = next(i for i in result.issues if i.rule == "missing_column")
-    assert issue.severity == "warning"
-
-
-def test_required_if_missing_column_preserves_error_severity():
-    frame = ar.from_dict({"x": [""]})
-    schema = ar.Schema({"x": ar.String(required_if=("flag", True), severity="error")})
-    result = ar.validate(frame, schema)
-    issue = next(i for i in result.issues if i.rule == "missing_column")
-    assert issue.severity == "error"
+>>>>>>> upstream/main

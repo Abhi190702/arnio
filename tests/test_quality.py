@@ -2449,8 +2449,671 @@ def test_auto_clean_dry_run_with_return_report_raises_value_error():
         ar.auto_clean(frame, dry_run=True, return_report=True)
 
 
-def test_auto_clean_dry_run_never_returns_tuple():
-    frame = ar.from_pandas(pd.DataFrame({"name": [" Alice "]}))
-    result = ar.auto_clean(frame, dry_run=True)
-    assert isinstance(result, ar.DataQualityReport)
-    assert not isinstance(result, tuple)
+    result = report.to_dict()
+
+    assert result["suggestions"][0]["step"] == "same_step"
+    assert result["suggestions"][1]["step"] == "same_step"
+
+
+def test_data_quality_report_to_json_redacts_top_values():
+    frame = ar.from_pandas(
+        pd.DataFrame(
+            {
+                "email": [
+                    "alice@example.com",
+                    "alice@example.com",
+                    "bob@example.com",
+                ]
+            }
+        )
+    )
+    report = ar.profile(frame, sample_size=2)
+
+    json_output = report.to_json(redact_sample_values=True)
+
+    parsed = json.loads(json_output)
+
+    assert parsed["columns"]["email"]["sample_values"] == ["[REDACTED]", "[REDACTED]"]
+    assert parsed["columns"]["email"]["top_values"] == [
+        {"value": "[REDACTED]", "count": 2, "ratio": pytest.approx(2 / 3)},
+        {"value": "[REDACTED]", "count": 1, "ratio": pytest.approx(1 / 3)},
+    ]
+
+
+def test_profile_empty_dataframe():
+    frame = ar.from_pandas(
+        pd.DataFrame({"a": pd.Series(dtype="int64"), "b": pd.Series(dtype="float64")})
+    )
+    report = ar.profile(frame)
+    assert report.row_count == 0
+    assert report.column_count == 2
+    assert report.duplicate_rows == 0
+    assert report.memory_usage >= 0
+    assert "a" in report.columns
+    assert "b" in report.columns
+    assert report.columns["a"].row_count == 0
+    assert report.columns["a"].null_count == 0
+    assert report.columns["b"].row_count == 0
+    assert report.columns["b"].null_count == 0
+
+
+# --- Tests for ProfileComparison.to_json() ---
+
+
+def test_profile_comparison_to_json_returns_string():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    result = comparison.to_json()
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert "drift_report" in parsed
+    assert "status_counts" in parsed
+
+
+def test_profile_comparison_to_json_indent():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    result = comparison.to_json(indent=2)
+    assert "\n" in result
+
+
+def test_profile_comparison_to_json_output_stream():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    buf = io.StringIO()
+    ret = comparison.to_json(output=buf)
+    assert ret is None
+    assert len(buf.getvalue()) > 0
+
+
+def test_profile_comparison_to_json_invalid_output_raises():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    with pytest.raises(TypeError, match="writable text stream"):
+        comparison.to_json(output="not_a_stream")
+
+
+# --- ProfileComparison.to_markdown() ---
+
+
+def test_profile_comparison_to_markdown_returns_string():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    result = comparison.to_markdown()
+    assert isinstance(result, str)
+    assert "Profile Comparison Report" in result
+    assert "Column Drift" in result
+
+
+def test_profile_comparison_to_markdown_output_stream():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    buf = io.StringIO()
+    ret = comparison.to_markdown(output=buf)
+    assert ret is None
+    assert "Profile Comparison" in buf.getvalue()
+
+
+def test_profile_comparison_to_markdown_invalid_output_raises():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    comparison = ar.compare_profiles(p, p)
+    with pytest.raises(TypeError, match="writable text stream"):
+        comparison.to_markdown(output=42)
+
+
+# --- Tests for QualityGateResult.to_json() ---
+
+
+def test_quality_gate_result_to_json_returns_string():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    result = ar.check_quality_gates(p, p)
+    out = result.to_json()
+    assert isinstance(out, str)
+    parsed = json.loads(out)
+    assert "passed" in parsed
+    assert "issues" in parsed
+
+
+def test_quality_gate_result_to_json_indent():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    result = ar.check_quality_gates(p, p)
+    out = result.to_json(indent=2)
+    assert "\n" in out
+
+
+def test_quality_gate_result_to_json_output_stream():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    result = ar.check_quality_gates(p, p)
+    buf = io.StringIO()
+    ret = result.to_json(output=buf)
+    assert ret is None
+    assert len(buf.getvalue()) > 0
+
+
+def test_quality_gate_result_to_json_invalid_output_raises():
+    frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+    p = ar.profile(frame)
+    result = ar.check_quality_gates(p, p)
+    with pytest.raises(TypeError, match="writable text stream"):
+        result.to_json(output=123)
+
+
+# --- Tests for ProfileComparison.to_json() ---
+
+
+def test_compare_profiles_mismatched_exclude_columns_hints_user():
+    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6], "c": [7, 8, 9]})
+    frame = ar.from_pandas(df)
+    profile_a = ar.profile(frame, exclude_columns=["c"])
+    profile_b = ar.profile(frame)
+
+    with pytest.raises(ValueError, match="exclude_columns"):
+        ar.compare_profiles(profile_a, profile_b)
+
+
+class TestValidateGateThreshold:
+    def test_none_returns_none(self):
+        assert _validate_gate_threshold(None, "max_row_count_delta_ratio") is None
+
+    def test_int_returns_float(self):
+        result = _validate_gate_threshold(5, "max_row_count_delta_ratio")
+        assert result == 5.0
+        assert isinstance(result, float)
+
+    def test_float_returns_float(self):
+        result = _validate_gate_threshold(0.1, "max_row_count_delta_ratio")
+        assert result == 0.1
+
+    def test_bool_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a non-negative number or None"):
+            _validate_gate_threshold(True, "max_row_count_delta_ratio")
+
+    def test_string_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a non-negative number or None"):
+            _validate_gate_threshold("0.1", "max_row_count_delta_ratio")
+
+    def test_negative_raises_value_error(self):
+        with pytest.raises(ValueError, match="must be a finite non-negative number"):
+            _validate_gate_threshold(-0.1, "max_row_count_delta_ratio")
+
+    def test_infinity_raises_value_error(self):
+        with pytest.raises(ValueError, match="must be a finite non-negative number"):
+            _validate_gate_threshold(math.inf, "max_row_count_delta_ratio")
+
+
+class TestValidateGateBool:
+    def test_true_returns_true(self):
+        assert _validate_gate_bool(True, "allow_new_columns") is True
+
+    def test_false_returns_false(self):
+        assert _validate_gate_bool(False, "allow_new_columns") is False
+
+    def test_int_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a bool"):
+            _validate_gate_bool(0, "allow_new_columns")
+
+    def test_string_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a bool"):
+            _validate_gate_bool("true", "allow_new_columns")
+
+
+class TestValidateGateRatioThreshold:
+    def test_none_returns_none(self):
+        assert _validate_gate_ratio_threshold(None, "max_null_ratio_delta") is None
+
+    def test_valid_ratio_returns_float(self):
+        result = _validate_gate_ratio_threshold(0.5, "max_null_ratio_delta")
+        assert result == 0.5
+        assert isinstance(result, float)
+
+    def test_boundary_values(self):
+        assert _validate_gate_ratio_threshold(0.0, "max_null_ratio_delta") == 0.0
+        assert _validate_gate_ratio_threshold(1.0, "max_null_ratio_delta") == 1.0
+
+    def test_value_above_one_raises_value_error(self):
+        with pytest.raises(ValueError, match="must be a ratio between 0.0 and 1.0"):
+            _validate_gate_ratio_threshold(1.01, "max_null_ratio_delta")
+
+    def test_negative_raises_value_error(self):
+        with pytest.raises(ValueError, match="must be a finite non-negative number"):
+            _validate_gate_ratio_threshold(-0.05, "max_null_ratio_delta")
+
+    def test_string_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a non-negative number or None"):
+            _validate_gate_ratio_threshold("0.5", "max_null_ratio_delta")
+
+
+# ── ProfileComparison redaction tests ────────────────────────────────────────
+
+
+def test_profile_comparison_to_dict_redacts_sample_values():
+    """redact_sample_values=True must replace sample values in both nested profiles."""
+    frame = ar.from_pandas(
+        pd.DataFrame({"email": ["alice@example.com", "bob@example.com"]})
+    )
+    left = ar.profile(frame)
+    right = ar.profile(frame)
+    comparison = ar.compare_profiles(left, right)
+
+    redacted = comparison.to_dict(redact_sample_values=True)
+    plain = comparison.to_dict()
+
+    # Sensitive values must not appear in the redacted export
+    assert "alice@example.com" not in str(redacted)
+    assert "bob@example.com" not in str(redacted)
+
+    # Sample values are replaced with the redaction sentinel
+    left_samples = redacted["left_profile"]["columns"]["email"]["sample_values"]
+    right_samples = redacted["right_profile"]["columns"]["email"]["sample_values"]
+    assert all(v == "[REDACTED]" for v in left_samples)
+    assert all(v == "[REDACTED]" for v in right_samples)
+
+    # Plain export still contains the real values
+    assert "alice@example.com" in str(plain)
+
+
+def test_profile_comparison_to_dict_exclude_columns():
+    """exclude_columns must omit the named column from both nested profiles."""
+    frame = ar.from_pandas(pd.DataFrame({"name": ["Alice", "Bob"], "score": [10, 20]}))
+    left = ar.profile(frame)
+    right = ar.profile(frame)
+    comparison = ar.compare_profiles(left, right)
+
+    result = comparison.to_dict(exclude_columns=["name"])
+
+    assert "name" not in result["left_profile"]["columns"]
+    assert "name" not in result["right_profile"]["columns"]
+    # Non-excluded column is still present
+    assert "score" in result["left_profile"]["columns"]
+    assert "score" in result["right_profile"]["columns"]
+
+
+def test_profile_comparison_to_json_redacts_sample_values():
+    """to_json(redact_sample_values=True) must not contain sensitive values."""
+    frame = ar.from_pandas(pd.DataFrame({"token": ["secret-abc", "secret-xyz"]}))
+    left = ar.profile(frame)
+    right = ar.profile(frame)
+    comparison = ar.compare_profiles(left, right)
+
+    json_redacted = comparison.to_json(redact_sample_values=True)
+    json_plain = comparison.to_json()
+
+    assert "secret-abc" not in json_redacted
+    assert "secret-xyz" not in json_redacted
+    assert "[REDACTED]" in json_redacted
+
+    # Plain export contains the real values
+    assert "secret-abc" in json_plain
+
+
+def test_profile_comparison_constructor_validation():
+    import pandas as pd
+
+    frame = ar.from_pandas(pd.DataFrame({"col1": [1, 2, 3]}))
+    valid_report = ar.profile(frame)
+
+    # 1. Test that valid types construct perfectly fine without errors
+    comparison = ar.quality.ProfileComparison(
+        left_profile=valid_report,
+        right_profile=valid_report,
+        drift_report={},
+        status_counts={},
+    )
+    assert comparison.drift_report == {}
+
+    # 2. Test invalid left_profile type throws TypeError
+    with pytest.raises(
+        TypeError, match="left_profile must be an instance of DataQualityReport"
+    ):
+        ar.quality.ProfileComparison(
+            left_profile="not_a_report_object",
+            right_profile=valid_report,
+            drift_report={},
+            status_counts={},
+        )
+
+    # 3. Test invalid right_profile type throws TypeError
+    with pytest.raises(
+        TypeError, match="right_profile must be an instance of DataQualityReport"
+    ):
+        ar.quality.ProfileComparison(
+            left_profile=valid_report,
+            right_profile="not_a_report_object",
+            drift_report={},
+            status_counts={},
+        )
+
+    # 4. Test malformed nested drift_report dictionary throws TypeError
+    with pytest.raises(
+        TypeError, match="drift_report must be a nested dictionary of dict"
+    ):
+        ar.quality.ProfileComparison(
+            left_profile=valid_report,
+            right_profile=valid_report,
+            drift_report={"col1": "should_be_a_dict_but_is_a_string"},
+            status_counts={},
+        )
+
+    # 5. Test non-int status_counts values throw TypeError
+    with pytest.raises(TypeError, match="status_counts values must be integers"):
+        ar.quality.ProfileComparison(
+            left_profile=valid_report,
+            right_profile=valid_report,
+            drift_report={},
+            status_counts={"missing_values": "should_be_an_int"},
+        )
+
+
+def test_column_profile_invariant_valid_initialization():
+    from arnio.quality import ColumnProfile
+
+    cp = ColumnProfile(
+        name="score",
+        dtype="float64",
+        semantic_type="numeric",
+        row_count=100,
+        null_count=5,
+        null_ratio=0.05,
+        unique_count=90,
+        unique_ratio=0.9,
+    )
+    assert cp.name == "score"
+    assert cp.row_count == 100
+
+
+def test_column_profile_invariant_invalid_counts():
+    from arnio.quality import ColumnProfile
+
+    with pytest.raises(ValueError, match="row_count cannot be negative"):
+        ColumnProfile("x", "int64", "numeric", -1, 0, 0.0, 0, 0.0)
+
+    with pytest.raises(ValueError, match="null_count cannot be negative"):
+        ColumnProfile("x", "int64", "numeric", 10, -5, 0.0, 0, 0.0)
+
+    with pytest.raises(ValueError, match="top_values_sample_count cannot be negative"):
+        ColumnProfile(
+            "x", "int64", "numeric", 10, 0, 0.0, 0, 0.0, top_values_sample_count=-10
+        )
+
+    with pytest.raises(TypeError, match="row_count must be an integer"):
+        ColumnProfile("x", "int64", "numeric", True, 0, 0.0, 0, 0.0)
+
+    with pytest.raises(TypeError, match="null_count must be an integer"):
+        ColumnProfile("x", "int64", "numeric", 10, "0", 0.0, 0, 0.0)
+
+    with pytest.raises(ValueError, match="unique_count cannot be negative"):
+        ColumnProfile("x", "int64", "numeric", 10, 0, 0.0, -1, 0.0)
+
+    with pytest.raises(TypeError, match="unique_count must be an integer"):
+        ColumnProfile("x", "int64", "numeric", 10, 0, 0.0, True, 0.0)
+
+
+def test_column_profile_invariant_invalid_ratios():
+    from arnio.quality import ColumnProfile
+
+    with pytest.raises(ValueError, match="null_ratio must be a finite ratio"):
+        ColumnProfile("x", "int64", "numeric", 10, 0, 1.05, 0, 0.0)
+
+    with pytest.raises(ValueError, match="unique_ratio must be a finite ratio"):
+        ColumnProfile("x", "int64", "numeric", 10, 0, 0.1, 0, -0.01)
+
+    with pytest.raises(ValueError, match="email_validity_ratio must be a finite ratio"):
+        ColumnProfile(
+            "x", "string", "email", 10, 0, 0.0, 0, 0.0, email_validity_ratio=2.0
+        )
+
+    with pytest.raises(ValueError, match="null_ratio must be a finite ratio"):
+        ColumnProfile("x", "int64", "numeric", 10, 0, float("nan"), 0, 0.0)
+
+    with pytest.raises(ValueError, match="unique_ratio must be a finite ratio"):
+        ColumnProfile("x", "int64", "numeric", 10, 0, 0.0, 0, float("inf"))
+
+
+def test_data_quality_report_invariant_valid_initialization():
+    from arnio.quality import DataQualityReport
+
+    report = DataQualityReport(
+        row_count=200,
+        column_count=5,
+        memory_usage=4096,
+        duplicate_rows=10,
+        duplicate_ratio=0.05,
+        columns={},
+        quality_score=95.5,
+    )
+    assert report.row_count == 200
+    assert report.quality_score == 95.5
+
+
+def test_data_quality_report_invariant_invalid_metrics():
+    from arnio.quality import DataQualityReport
+
+    with pytest.raises(ValueError, match="memory_usage cannot be negative"):
+        DataQualityReport(10, 2, -1024, 0, 0.0, {})
+
+    with pytest.raises(ValueError, match="quality_score must be a finite value"):
+        DataQualityReport(10, 2, 512, 0, 0.0, {}, quality_score=100.5)
+
+    with pytest.raises(ValueError, match="quality_score must be a finite value"):
+        DataQualityReport(10, 2, 512, 0, 0.0, {}, quality_score=-1.0)
+
+    with pytest.raises(TypeError, match="quality_score must be a number"):
+        DataQualityReport(10, 2, 512, 0, 0.0, {}, quality_score=False)
+
+    with pytest.raises(ValueError, match="quality_score must be a finite value"):
+        DataQualityReport(10, 2, 512, 0, 0.0, {}, quality_score=float("nan"))
+
+
+def test_cleaning_suggestion_is_exported():
+    assert hasattr(
+        ar, "CleaningSuggestion"
+    ), "CleaningSuggestion is missing from arnio.__init__ file"
+
+    assert (
+        ar.CleaningSuggestion is CleaningSuggestion
+    ), "Top-level CleaningSuggestion does not match the internal type"
+    assert (
+        ar.CleaningSuggestion is CleaningSuggestion
+    ), "Top-level CleaningSuggestion does not match the internal type"
+
+
+# ── CleanStepRecord and CleanExplanation validation tests (Fixes #1687) ──────
+
+
+class TestCleanStepRecordValidation:
+    """CleanStepRecord.__post_init__ must reject invalid field types early."""
+
+    def _valid_record(self, **overrides):
+        defaults = dict(
+            step="strip_whitespace",
+            kwargs={"subset": ["name"]},
+            rows_before=10,
+            rows_after=10,
+            rows_removed=0,
+            reason="whitespace found",
+        )
+        defaults.update(overrides)
+        return ar.CleanStepRecord(**defaults)
+
+    def test_valid_construction_succeeds(self):
+        rec = self._valid_record()
+        assert rec.step == "strip_whitespace"
+        assert rec.rows_removed == 0
+
+    def test_step_must_be_str(self):
+        with pytest.raises(TypeError, match="step must be a str"):
+            self._valid_record(step=42)
+
+    def test_reason_must_be_str(self):
+        with pytest.raises(TypeError, match="reason must be a str"):
+            self._valid_record(reason=None)
+
+    def test_kwargs_must_be_dict(self):
+        with pytest.raises(TypeError, match="kwargs must be a dict"):
+            self._valid_record(kwargs="not-a-dict")
+
+    def test_rows_before_must_be_int(self):
+        with pytest.raises(TypeError, match="rows_before must be an int"):
+            self._valid_record(rows_before="ten")
+
+    def test_rows_before_rejects_bool(self):
+        with pytest.raises(TypeError, match="rows_before must be an int"):
+            self._valid_record(rows_before=True)
+
+    def test_rows_after_must_be_int(self):
+        with pytest.raises(TypeError, match="rows_after must be an int"):
+            self._valid_record(rows_after=3.5)
+
+    def test_rows_removed_must_be_int(self):
+        with pytest.raises(TypeError, match="rows_removed must be an int"):
+            self._valid_record(rows_removed=[])
+
+    def test_rows_before_cannot_be_negative(self):
+        with pytest.raises(ValueError, match="rows_before cannot be negative"):
+            self._valid_record(rows_before=-1)
+
+    def test_rows_after_cannot_be_negative(self):
+        with pytest.raises(ValueError, match="rows_after cannot be negative"):
+            self._valid_record(rows_after=-5)
+
+    def test_rows_removed_cannot_be_negative(self):
+        with pytest.raises(ValueError, match="rows_removed cannot be negative"):
+            self._valid_record(rows_removed=-3)
+
+
+class TestCleanExplanationValidation:
+    """CleanExplanation.__post_init__ must reject invalid field types early."""
+
+    def _valid_record(self):
+        return ar.CleanStepRecord(
+            step="strip_whitespace",
+            kwargs={},
+            rows_before=5,
+            rows_after=5,
+            rows_removed=0,
+            reason="whitespace",
+        )
+
+    def _valid_explanation(self, **overrides):
+        defaults = dict(
+            mode="safe",
+            rows_before=5,
+            rows_after=5,
+            rows_removed=0,
+            steps=[],
+        )
+        defaults.update(overrides)
+        return ar.CleanExplanation(**defaults)
+
+    def test_valid_construction_empty_steps(self):
+        exp = self._valid_explanation()
+        assert exp.mode == "safe"
+        assert exp.steps == []
+
+    def test_valid_construction_with_steps(self):
+        exp = self._valid_explanation(steps=[self._valid_record()])
+        assert len(exp.steps) == 1
+
+    def test_mode_must_be_str(self):
+        with pytest.raises(TypeError, match="mode must be a str"):
+            self._valid_explanation(mode=123)
+
+    def test_mode_rejects_none(self):
+        with pytest.raises(TypeError, match="mode must be a str"):
+            self._valid_explanation(mode=None)
+
+    def test_rows_before_must_be_int(self):
+        with pytest.raises(TypeError, match="rows_before must be an int"):
+            self._valid_explanation(rows_before="a")
+
+    def test_rows_before_rejects_bool(self):
+        with pytest.raises(TypeError, match="rows_before must be an int"):
+            self._valid_explanation(rows_before=True)
+
+    def test_rows_after_must_be_int(self):
+        with pytest.raises(TypeError, match="rows_after must be an int"):
+            self._valid_explanation(rows_after=None)
+
+    def test_rows_removed_must_be_int(self):
+        with pytest.raises(TypeError, match="rows_removed must be an int"):
+            self._valid_explanation(rows_removed=[])
+
+    def test_rows_before_cannot_be_negative(self):
+        with pytest.raises(ValueError, match="rows_before cannot be negative"):
+            self._valid_explanation(rows_before=-1)
+
+    def test_rows_after_cannot_be_negative(self):
+        with pytest.raises(ValueError, match="rows_after cannot be negative"):
+            self._valid_explanation(rows_after=-1)
+
+    def test_rows_removed_cannot_be_negative(self):
+        with pytest.raises(ValueError, match="rows_removed cannot be negative"):
+            self._valid_explanation(rows_removed=-1)
+
+    def test_steps_must_be_list(self):
+        with pytest.raises(TypeError, match="steps must be a list"):
+            self._valid_explanation(steps="bad")
+
+    def test_steps_elements_must_be_cleansteprecord(self):
+        with pytest.raises(TypeError, match="steps\\[0\\] must be a CleanStepRecord"):
+            self._valid_explanation(steps=["bad"])
+
+    def test_steps_rejects_mixed_list(self):
+        with pytest.raises(TypeError, match="steps\\[1\\] must be a CleanStepRecord"):
+            self._valid_explanation(steps=[self._valid_record(), 42])
+
+    def test_original_issue_repro_raises_at_construction(self):
+        """Regression: invalid state must be caught at construction, not in __str__."""
+        with pytest.raises((TypeError, ValueError)):
+            ar.CleanExplanation(
+                mode=123,
+                rows_before="a",
+                rows_after=None,
+                rows_removed=[],
+                steps=["bad"],
+            )
+
+    def test_str_works_on_valid_explanation(self):
+        exp = self._valid_explanation(steps=[self._valid_record()])
+        text = str(exp)
+        assert "CleanExplanation" in text
+        assert "strip_whitespace" in text
+
+    def test_str_works_on_empty_steps(self):
+        exp = self._valid_explanation()
+        text = str(exp)
+        assert "(none)" in text
+
+    def test_quality_gate_to_markdown_returns_string():
+        frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+        p = ar.profile(frame)
+        result = ar.check_quality_gates(p, p)
+        md = result.to_markdown()
+        assert isinstance(md, str)
+
+
+    def test_quality_gate_result_to_markdown_stringio():
+        frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+        p = ar.profile(frame)
+        result = ar.check_quality_gates(p, p)
+        buf = io.StringIO()
+        ret = result.to_markdown(output=buf)
+        assert ret is None
+        assert len(buf.getvalue()) > 0
+
+    def test_quality_gate_result_to_markdown_invalid_output():
+        frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
+        p = ar.profile(frame)
+        result = ar.check_quality_gates(p, p)
+        with pytest.raises(TypeError):
+            result.to_markdown(output=42)
