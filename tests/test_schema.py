@@ -4049,7 +4049,6 @@ def test_validate_max_errors_zero_valid_data():
     with pytest.raises(ValueError, match="max_errors must be >= 1"):
         ar.validate(frame, schema, max_errors=0)
 
-
 def test_normalize_sequence_homogeneous_strings():
     schema = ar.Schema({"status": ar.String(allowed={"active", "inactive", "pending"})})
     payload = json.loads(schema.to_json())
@@ -4187,7 +4186,6 @@ def test_custom_rule_returning_malformed_issue_raises_early(tmp_path):
     with pytest.raises((TypeError, ValueError)):
         schema.validate(frame)
 
-
 def test_from_json_rejects_unknown_top_level_key():
     payload = json.dumps(
         {
@@ -4223,3 +4221,19 @@ def test_from_json_round_trip_is_accepted():
     recovered = ar.Schema.from_json(original.to_json())
     assert recovered.fields["email"].nullable is False
     assert recovered.unique == ["email"]
+
+
+def test_required_if_missing_column_preserves_warning_severity():
+    frame = ar.from_dict({"x": [""]})
+    schema = ar.Schema({"x": ar.String(required_if=("flag", True), severity="warning")})
+    result = ar.validate(frame, schema)
+    issue = next(i for i in result.issues if i.rule == "missing_column")
+    assert issue.severity == "warning"
+
+
+def test_required_if_missing_column_preserves_error_severity():
+    frame = ar.from_dict({"x": [""]})
+    schema = ar.Schema({"x": ar.String(required_if=("flag", True), severity="error")})
+    result = ar.validate(frame, schema)
+    issue = next(i for i in result.issues if i.rule == "missing_column")
+    assert issue.severity == "error"
