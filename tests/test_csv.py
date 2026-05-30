@@ -2567,7 +2567,7 @@ class TestArFrameToDict:
         for col in frame.columns:
             assert result[col] == frame[col]
 
-def test_csv_chunked_progress_hook_fires(self, tmp_path):
+def test_csv_chunked_progress_hook_fires(tmp_path):
         import arnio as ar
 
         test_file = tmp_path / "test_chunked_progress.csv"

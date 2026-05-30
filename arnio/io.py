@@ -555,7 +555,7 @@ def read_csv(
     """
     path, should_cleanup = _materialize_csv_input(path)
 
-try:
+    try:
         _validate_csv_path(path, encoding)
 
         path_lower = path.lower()
