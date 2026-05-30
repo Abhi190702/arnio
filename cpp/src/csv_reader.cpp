@@ -934,51 +934,6 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
         }
     }
 
-        raw_data.push_back(reusable_fields);
-        ++row_count;
-
-        // Intermediate Progress Signal
-    if (config.progress_hook != nullptr &&
-        row_count > 0 &&
-        row_count % config.progress_interval_rows == 0) {
-
-        std::streampos pos = file.tellg();
-
-        size_t bytes_read =
-            (pos == std::streampos(-1))
-                ? 0
-                : static_cast<size_t>(pos);
-
-        config.progress_hook(
-            row_count,
-            bytes_read,
-            std::nullopt,
-            false);
-        }
-    }// while loop ends here
-
-    // Final Progress Signal (True means done!)
-    if (config.progress_hook != nullptr) {
-        std::streampos pos = file.tellg();
-
-        size_t bytes_read =
-            (pos == std::streampos(-1))
-                ? 0
-                : static_cast<size_t>(pos);
-
-        config.progress_hook(
-            row_count,
-            bytes_read,
-            std::nullopt,
-            true);
-    }
-
-    // Safely close the file at the very end
-    file.close();
-    // If no header, generate column names
-    if (!config.has_header && !raw_data.empty()) {
-        for (size_t i = 0; i < raw_data[0].size(); ++i) {
-            header.push_back("col_" + std::to_string(i));
     // Finalise: promote all-null columns to STRING.
     for (auto& dt : col_types) {
         if (dt == DType::NULL_TYPE) dt = DType::STRING;
@@ -1069,8 +1024,6 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
                         }
                         bad_rows.push_back(BadRow{record_number2, expected, actual});
                     }
-                    // Already recorded in pass 1 when it ran; either way count to
-                    // skip and enforce nrows properly.
                     ++bad_row_count2;
                     continue;
                 }
@@ -1095,6 +1048,25 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
                 }
             }
             ++row_count2;
+
+            // Intermediate Progress Signal
+            if (config.progress_hook != nullptr &&
+                row_count2 > 0 &&
+                row_count2 % config.progress_interval_rows == 0) {
+                
+                std::streampos pos = file2.tellg();
+                size_t bytes_read = (pos == std::streampos(-1)) ? 0 : static_cast<size_t>(pos);
+                
+                config.progress_hook(row_count2, bytes_read, std::nullopt, false);
+            }
+        }
+        
+        // Final Progress Signal
+        if (config.progress_hook != nullptr) {
+            std::streampos pos = file2.tellg();
+            size_t bytes_read = (pos == std::streampos(-1)) ? 0 : static_cast<size_t>(pos);
+            
+            config.progress_hook(row_count2, bytes_read, std::nullopt, true);
         }
     }
 
