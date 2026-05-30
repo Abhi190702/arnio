@@ -29,6 +29,7 @@ from ._core import (
     create_rolling_windows,
 )
 from .exceptions import TypeCastError
+from .frame import ArFrame
 
 import pandas as pd
 from .convert import from_pandas, to_pandas

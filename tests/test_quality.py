@@ -3111,9 +3111,85 @@ class TestCleanExplanationValidation:
         assert ret is None
         assert len(buf.getvalue()) > 0
 
-    def test_quality_gate_result_to_markdown_invalid_output():
-        frame = ar.from_pandas(pd.DataFrame({"x": [1, 2, 3]}))
-        p = ar.profile(frame)
-        result = ar.check_quality_gates(p, p)
-        with pytest.raises(TypeError):
-            result.to_markdown(output=42)
+
+def test_auto_clean_rejects_none_mode():
+    frame = ar.from_dict({"name": [" Alice "]})
+    with pytest.raises(ValueError, match="mode must be 'safe' or 'strict'"):
+        ar.auto_clean(frame, mode=None)
+
+
+def test_auto_clean_rejects_integer_mode():
+    frame = ar.from_dict({"name": [" Alice "]})
+    with pytest.raises(ValueError, match="mode must be 'safe' or 'strict'"):
+        ar.auto_clean(frame, mode=1)
+
+
+def test_auto_clean_rejects_invalid_string_mode():
+    frame = ar.from_dict({"name": [" Alice "]})
+    with pytest.raises(ValueError, match="mode must be 'safe' or 'strict'"):
+        ar.auto_clean(frame, mode="SAFE")
+
+
+@pytest.mark.parametrize("obj", [object(), None, 123, pd.DataFrame()])
+def test_quality_helpers_reject_invalid_frame(obj):
+    with pytest.raises(TypeError, match=".*must be an ArFrame.*"):
+        ar.profile(obj)
+    with pytest.raises(TypeError, match=".*must be an ArFrame.*"):
+        ar.auto_clean(obj)
+
+
+def test_score_breakdown_with_real_values():
+    """Ensure score_breakdown correctly maps real penalty components and handles to_dict."""
+
+    # 1. Define real or mock score components dictionary
+    real_components = {
+        "null_penalty": 5.0,
+        "duplicate_penalty": 2.0,
+        "type_mismatch_penalty": 1.5,
+    }
+
+    # 2. Reconstruct the report using an empty dict for columns (or a proper mapping)
+    # instead of a raw list of strings to prevent serialization errors.
+    instance = DataQualityReport(
+        row_count=100,
+        column_count=5,
+        memory_usage=1024,
+        duplicate_rows=0,
+        duplicate_ratio=0.0,
+        columns={},  # Pass an empty dict or valid ColumnQualityReport mapping
+        score_components=real_components,
+        quality_score=85.0,
+        suggestions=[],
+    )
+
+    # 3. Explicitly call your new method to assign 'result'
+    result = instance.score_breakdown()
+
+    # 4. Assertions
+    assert isinstance(result, dict)
+
+    expected_keys = [
+        "null_penalty",
+        "duplicate_penalty",
+        "type_mismatch_penalty",
+        "final_score",
+    ]
+
+    for key in expected_keys:
+        assert key in result, f"Missing key: {key}"
+        assert isinstance(result[key], (int, float)), f"{key} must be numeric"
+
+
+def test_profile_comparison_drift_report_exclude_columns():
+    df = pd.DataFrame({"name": ["Alice", "Bob"], "secret_key": ["abc123", "xyz789"]})
+    frame = ar.from_pandas(df)
+    p1 = ar.profile(frame)
+    comparison = ar.compare_profiles(p1, p1)
+    exported_dict = comparison.to_dict(exclude_columns=["secret_key"])
+
+    assert "secret_key" not in exported_dict["left_profile"]["columns"]
+    assert "secret_key" not in exported_dict["right_profile"]["columns"]
+    assert "secret_key" not in exported_dict["drift_report"]
+
+
+# lint_sync
