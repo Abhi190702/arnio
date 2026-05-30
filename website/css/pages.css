@@ -7,10 +7,7 @@
   position: relative;
   overflow: hidden;
   padding: 8rem 0 6rem;
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.18), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(99, 102, 241, 0.15), transparent 30%),
-    linear-gradient(135deg, #071421 0%, #0d1b2a 45%, #10243a 100%);
+  background: linear-gradient(135deg, #071421 0%, #0d1b2a 100%);
   color: #ffffff;
   text-align: center;
 }
@@ -25,7 +22,7 @@
   font-weight: 800;
   max-width: 980px;
   margin: 0 auto 1.5rem;
-  letter-spacing: -0.04em;
+  
   color: #ffffff;
 }
 .hero-subtitle {
@@ -53,7 +50,7 @@
   font-weight: 600;
   transition: all 0.28s ease;
   backdrop-filter: blur(10px);
-  transition: all 0.3s ease;
+  
 }
 
 .hero-actions .btn:hover {
