@@ -24,6 +24,9 @@ from ._core import (
     _strip_whitespace,
 )
 from .exceptions import TypeCastError
+
+import pandas as pd
+from .convert import from_pandas, to_pandas
 from .frame import ArFrame
 
 
@@ -1408,8 +1411,6 @@ def parse_numeric_strings(
     >>> frame = ar.read_csv("data.csv")
     >>> cleaned = ar.parse_numeric_strings(frame, subset=["price", "discount"])
     """
-    import pandas as pd
-    from .convert import from_pandas, to_pandas
 
     if errors not in ("coerce", "raise"):
         raise ValueError(f"errors parameter must be 'coerce' or 'raise', not '{errors}'")
