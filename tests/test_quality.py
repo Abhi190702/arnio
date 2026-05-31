@@ -4284,15 +4284,18 @@ class TestQualityGateResultConstructorValidation:
 class TestValidateJsonIndent:
     def test_none_is_accepted(self):
         from arnio.quality import _validate_json_indent
+
         assert _validate_json_indent(None) is None
 
     def test_valid_integers(self):
         from arnio.quality import _validate_json_indent
+
         assert _validate_json_indent(0) == 0
         assert _validate_json_indent(4) == 4
 
     def test_bool_raises_type_error(self):
         from arnio.quality import _validate_json_indent
+
         with pytest.raises(TypeError, match="indent must be an integer or None"):
             _validate_json_indent(True)
         with pytest.raises(TypeError, match="indent must be an integer or None"):
@@ -4300,6 +4303,7 @@ class TestValidateJsonIndent:
 
     def test_invalid_types_raise_type_error(self):
         from arnio.quality import _validate_json_indent
+
         with pytest.raises(TypeError, match="indent must be an integer or None"):
             _validate_json_indent("2")
         with pytest.raises(TypeError, match="indent must be an integer or None"):
@@ -4309,6 +4313,7 @@ class TestValidateJsonIndent:
 
     def test_negative_raises_value_error(self):
         from arnio.quality import _validate_json_indent
+
         with pytest.raises(ValueError, match="indent cannot be negative"):
             _validate_json_indent(-1)
         with pytest.raises(ValueError, match="indent cannot be negative"):
@@ -4376,4 +4381,3 @@ def test_quality_gate_result_to_json_validation():
         result.to_json(indent=True)
     with pytest.raises(ValueError, match="indent cannot be negative"):
         result.to_json(indent=-1)
-
