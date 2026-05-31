@@ -70,3 +70,6 @@ Ready-to-run scripts in the `examples/` directory for common integrations and wo
 | [schema_validation.py](./schema_validation.py) | Define a Schema and validate typed fields end-to-end | `python schema_validation.py` |
 | [custom_step.py](./custom_step.py) | Register a custom Python cleaning step in a pipeline | `python custom_step.py` |
 | [arnio_chunk_reading.py](./arnio_chunk_reading.py) | Read and process large files in chunks | `python arnio_chunk_reading.py` |
+| [auto_clean_tutorial.py](./auto_clean_tutorial.py) | End-to-end `auto_clean` walkthrough with safe and strict modes | `python auto_clean_tutorial.py` |
+| [custom_step_with_tests.py](./custom_step_with_tests.py) | Custom pipeline step with inline assertions and validation | `python custom_step_with_tests.py` |
+| [check_env.py](./check_env.py) | Utility: verify your environment has all required dependencies | `python check_env.py` |
