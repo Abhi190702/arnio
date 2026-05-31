@@ -73,6 +73,29 @@ def _validate_numeric_bound(value: float | int, name: str) -> None:
     if not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number, got {value!r}")
 
+def _validate_allowed_collection(allowed: Any, param_name: str = "allowed") -> set:
+    """Validate and convert an allowed-value collection to a set."""
+    if isinstance(allowed, (str, bytes)):
+        raise TypeError(
+            f"{param_name} must be an iterable of hashable scalar values, "
+            f"not a bare {'string' if isinstance(allowed, str) else 'bytes'}"
+        )
+    if not hasattr(allowed, "__iter__"):
+        raise TypeError(
+            f"{param_name} must be an iterable of hashable scalar values"
+        )
+    result = []
+    for item in allowed:
+        try:
+            hash(item)
+        except TypeError:
+            raise TypeError(
+                f"{param_name} values must be hashable scalar values, "
+                f"got unhashable type: '{type(item).__name__}'"
+            )
+        result.append(item)
+    return set(result)
+
 
 _DTYPE_MAP = {
     "int": "int64",
@@ -1925,7 +1948,7 @@ def String(
             if value < 0:
                 raise ValueError(f"{name} must be greater than or equal to 0")
 
-    allowed_set = set(allowed) if allowed is not None else None
+    allowed_set = _validate_allowed_collection(allowed) if allowed is not None else None
 
     return Field(
         dtype="string",
@@ -2200,17 +2223,14 @@ def CurrencyCode(
         Field: Configured 3-letter uppercase currency-code schema field.
     """
 
-    if isinstance(allowed, (str, bytes)):
-        raise TypeError(
-            "allowed must be a sequence of currency codes, not a bare string"
-        )
-
     if allowed is not None:
+        _validate_allowed_collection(allowed)
         for value in allowed:
             if not isinstance(value, str):
-                raise TypeError("all allowed currency codes must be strings")
-
-    allowed_set = set(allowed) if allowed is not None else None
+                raise TypeError(f"allowed values for CurrencyCode must be strings, got {type(value).__name__!r}")
+        allowed_set = set(allowed)
+    else:
+        allowed_set = None
 
     return Field(
         dtype="string",

@@ -4246,3 +4246,59 @@ def test_from_json_round_trip_is_accepted():
     recovered = ar.Schema.from_json(original.to_json())
     assert recovered.fields["email"].nullable is False
     assert recovered.unique == ["email"]
+
+
+class TestValidateAllowedCollection:
+    """Regression tests for issue #1676 - validate allowed-value collections."""
+
+    # --- String ---
+
+    def test_string_valid_list(self):
+        f = ar.String(allowed=["a", "b", "c"])
+        assert f.allowed == {"a", "b", "c"}
+
+    def test_string_valid_tuple(self):
+        f = ar.String(allowed=("x", "y"))
+        assert f.allowed == {"x", "y"}
+
+    def test_string_valid_set(self):
+        f = ar.String(allowed={"foo", "bar"})
+        assert f.allowed == {"foo", "bar"}
+
+    def test_string_rejects_bare_string(self):
+        with pytest.raises(TypeError, match="bare string"):
+            ar.String(allowed="abc")
+
+    def test_string_rejects_bare_bytes(self):
+        with pytest.raises(TypeError):
+            ar.String(allowed=b"abc")
+
+    def test_string_rejects_non_iterable(self):
+        with pytest.raises(TypeError, match="iterable"):
+            ar.String(allowed=123)
+
+    def test_string_rejects_unhashable_nested_list(self):
+        with pytest.raises(TypeError, match="unhashable"):
+            ar.String(allowed=[["x"]])
+
+    def test_string_rejects_unhashable_dict_value(self):
+        with pytest.raises(TypeError, match="unhashable"):
+            ar.String(allowed=[{"a": 1}])
+
+    # --- CurrencyCode ---
+
+    def test_currency_code_valid_list(self):
+        f = ar.CurrencyCode(allowed=["USD", "EUR", "INR"])
+        assert f.allowed == {"USD", "EUR", "INR"}
+
+    def test_currency_code_rejects_bare_string(self):
+        with pytest.raises(TypeError, match="bare string"):
+            ar.CurrencyCode(allowed="USD")
+
+    def test_currency_code_rejects_unhashable(self):
+        with pytest.raises(TypeError, match="unhashable"):
+            ar.CurrencyCode(allowed=[["USD"]])
+
+    def test_currency_code_none_allowed(self):
+        f = ar.CurrencyCode(allowed=None)
+        assert f.allowed is None
