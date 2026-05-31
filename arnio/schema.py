@@ -73,6 +73,7 @@ def _validate_numeric_bound(value: float | int, name: str) -> None:
     if not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number, got {value!r}")
 
+
 def _validate_allowed_collection(allowed: Any, param_name: str = "allowed") -> set:
     """Validate and convert an allowed-value collection to a set."""
     if isinstance(allowed, (str, bytes)):
@@ -81,9 +82,7 @@ def _validate_allowed_collection(allowed: Any, param_name: str = "allowed") -> s
             f"not a bare {'string' if isinstance(allowed, str) else 'bytes'}"
         )
     if not hasattr(allowed, "__iter__"):
-        raise TypeError(
-            f"{param_name} must be an iterable of hashable scalar values"
-        )
+        raise TypeError(f"{param_name} must be an iterable of hashable scalar values")
     result = []
     for item in allowed:
         try:
@@ -2227,7 +2226,9 @@ def CurrencyCode(
         _validate_allowed_collection(allowed)
         for value in allowed:
             if not isinstance(value, str):
-                raise TypeError(f"allowed values for CurrencyCode must be strings, got {type(value).__name__!r}")
+                raise TypeError(
+                    f"allowed values for CurrencyCode must be strings, got {type(value).__name__!r}"
+                )
         allowed_set = set(allowed)
     else:
         allowed_set = None
