@@ -1034,17 +1034,20 @@ class ProfileComparison:
         redact_sample_values: bool = False,
         exclude_columns: list[str] | set[str] | tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
-        """Return a JSON-friendly dictionary representation.
+        """Convert the profile comparison results to a dictionary.
 
         Parameters
         ----------
         redact_sample_values : bool, default False
-            When True, sample values are replaced with ``[REDACTED]`` in
-            both nested profile exports.
+            If True, removes actual data examples from the quality summaries.
         exclude_columns : list, set, or tuple of str, optional
-            Column names to omit from both nested profile exports.
+            A collection of column names to completely omit from the final report structure.
+
+        Returns
+        -------
+        dict
+            A structured dictionary containing the metric profiles and comparisons.
         """
-        # Convert exclude_columns to a set for O(1) lookups
         exclude_set = set(exclude_columns) if exclude_columns is not None else set()
 
         return {
@@ -1058,54 +1061,60 @@ class ProfileComparison:
             ),
             "status_counts": dict(self.status_counts),
             "drift_report": {
-                    name: _clean_drift_entry(entry)
-                    for name, entry in self.drift_report.items()
-                    if name not in exclude_set
-                },
+                name: _clean_drift_entry(entry)
+                for name, entry in self.drift_report.items()
+                if name not in exclude_set
+            },
         }
 
     def to_json(
         self,
         *,
-        indent: int | None = None,
         redact_sample_values: bool = False,
         exclude_columns: list[str] | set[str] | tuple[str, ...] | None = None,
-        output: Any | None = None,
+        indent: int | None = None,
+        output: Any = None,
     ) -> str | None:
-        """Return the comparison as a JSON string.
+        """Serialize the profile comparison results into a JSON string.
 
         Parameters
         ----------
-        indent : int or None, default None
-            JSON indentation level.
         redact_sample_values : bool, default False
-            When True, sample values are replaced with ``[REDACTED]`` in
-            both nested profile exports.
+            If True, redacts sensitive statistical sample values.
         exclude_columns : list, set, or tuple of str, optional
-            Column names to omit from both nested profile exports.
-        output : writable text stream, optional
-            If provided, the JSON is written to this stream and None is
-            returned instead of a string.
+            Columns to drop entirely from the serialization pipeline.
+        indent : int, optional
+            Spacing for pretty-printed JSON output format.
+        output : file-like object, optional
+            A writable text stream (like a file or StringIO) to write the JSON to directly.
 
-        Example:
-        comparison.to_json(indent=2)
+        Returns
+        -------
+        str or None
+            A valid JSON string representation of the comparison metrics,
+            or None if an output stream was provided.
+
+        Examples
+        --------
+        >>> comparison.to_json(exclude_columns=["password", "ssn"], indent=2)
         """
-        json_out = json.dumps(
-            self.to_dict(
-                redact_sample_values=redact_sample_values,
-                exclude_columns=exclude_columns,
-            ),
-            indent=indent,
-        )
-
-        if output is None:
-            return json_out
-
-        if not hasattr(output, "write"):
+        # Validate output stream type if provided
+        if output is not None and not hasattr(output, "write"):
             raise TypeError("output must be a writable text stream")
 
-        output.write(json_out)
-        return None
+        data_dict = self.to_dict(
+            redact_sample_values=redact_sample_values,
+            exclude_columns=exclude_columns,
+        )
+        import json
+
+        json_str = json.dumps(data_dict, indent=indent)
+
+        if output is not None:
+            output.write(json_str)
+            return None
+
+        return json_str
 
     def to_markdown(self, output: Any | None = None) -> str | None:
         """Return a GitHub-friendly Markdown drift report."""

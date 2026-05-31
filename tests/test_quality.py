@@ -4136,8 +4136,9 @@ class TestQualityGateResultConstructorValidation:
 
 def test_profile_comparison_drift_report_exclude_columns():
     """Regression test ensuring exclude_columns drops keys from drift_report."""
-    import arnio as ar
     import pandas as pd
+
+    import arnio as ar
 
     # Create dummy frame with a sensitive column
     df = pd.DataFrame(
