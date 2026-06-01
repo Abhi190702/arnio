@@ -1067,7 +1067,7 @@ CsvParseResult CsvReader::read(const std::string& path, const std::string& on_ba
             config.progress_hook(row_count2, bytes_read, std::nullopt, true);
         }
     }
-    
+
     return CsvParseResult{Frame(std::move(columns)), std::move(bad_rows)};
 }
 
