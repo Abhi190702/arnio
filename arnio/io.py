@@ -629,7 +629,7 @@ def read_csv(
 
             def wrapper(
                 rows: int, bytes_read: int, total_bytes: int | None, is_done: bool
-            ):
+            ) -> None:
                 box = CSVProgress(
                     rows_read=rows,
                     bytes_read=bytes_read,
@@ -638,8 +638,8 @@ def read_csv(
                 )
                 progress_hook(box)
 
-            config.progress_hook = wrapper
-            config.progress_interval_rows = progress_interval_rows
+            config.progress_hook = wrapper  # type: ignore[attr-defined]
+            config.progress_interval_rows = progress_interval_rows  # type: ignore[attr-defined]
 
         reader = _CsvReader(config)
     except Exception:
@@ -866,11 +866,11 @@ def read_csv_chunked(
 
             last_rows = 0
             last_bytes = 0
-            last_total = 0
+            last_total: int | None = 0
 
             def wrapper(
                 rows: int, bytes_read: int, total_bytes: int | None, is_done: bool
-            ):
+            ) -> None:
                 nonlocal last_rows, last_bytes, last_total
                 last_rows = rows
                 last_bytes = bytes_read
@@ -884,8 +884,8 @@ def read_csv_chunked(
                 )
                 progress_hook(box)
 
-            config.progress_hook = wrapper
-            config.progress_interval_rows = progress_interval_rows
+            config.progress_hook = wrapper  # type: ignore[attr-defined]
+            config.progress_interval_rows = progress_interval_rows  # type: ignore[attr-defined]
 
         reader = _CsvChunkReader(config)
     except Exception:
