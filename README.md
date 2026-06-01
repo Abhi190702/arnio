@@ -36,6 +36,10 @@ pip install arnio
 ```
 
 Colab install smoke test: **[COLAB_SMOKE_TEST.md](COLAB_SMOKE_TEST.md)**
+**Interactive Notebooks:**
+[![Basic Usage](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/im-anishraj/arnio/blob/main/examples/basic_usage.ipynb)
+[![Pandas Interop](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/im-anishraj/arnio/blob/main/examples/arnio_with_pandas.ipynb)
+[![Schema Validation](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/im-anishraj/arnio/blob/main/examples/schema_validation.ipynb)
 
 <br>
 
@@ -618,7 +622,9 @@ not to replace it.
 
 ### DuckDB registration
 
-Use `ar.register_duckdb(frame, conn, "table_name")` to register an ArFrame directly as a DuckDB relation without writing pandas conversion glue yourself. DuckDB is an optional dependency — install it with `pip install duckdb` when needed.
+Use `ar.register_duckdb(frame, conn, "table_name")` to register an ArFrame directly as a DuckDB relation without writing pandas conversion glue yourself. DuckDB is an optional dependency — install it with `pip install "arnio[duckdb]"` when needed. You can also install DuckDB directly with `pip install duckdb`.
+
+For development and CI, `pip install -e ".[dev]"` now includes DuckDB so the integration test module in `tests/test_integrations_duckdb.py` runs in the default test job.
 
 ```python
 import duckdb
@@ -630,25 +636,34 @@ ar.register_duckdb(frame, conn, "my_table")
 result = conn.execute("SELECT * FROM my_table").fetchdf()
 ```
 
-### Row-dropping pipeline behavior
+### Row-dropping and schema-change behavior
 
-Some pipeline steps such as `drop_nulls` or `drop_duplicates`
-can change the number of rows returned during `transform`.
+`ArnioCleaner` enforces a strict transformer contract by default:
 
-By default, `ArnioCleaner` raises a `ValueError` if a pipeline
-changes row count during transform because many scikit-learn
-workflows expect input and output sample counts to remain aligned.
+- **Row-count-changing steps** (`drop_nulls`, `drop_duplicates`,
+  `filter_rows`, `keep_rows_with_nulls`) are **rejected by default** with a
+  clear `ValueError`. To allow row-count changes, pass `allow_row_count_change=True`.
 
-If row-dropping behavior is intentional, pass
-`allow_row_count_change=True` when constructing `ArnioCleaner`.
+- **Column schema-changing steps** (`rename_columns`, `drop_columns`,
+  `drop_constant_columns`, `combine_columns`) are **rejected by default**
+  and allowed only when `allow_schema_changes=True` is passed.
 
 ```python
+# Schema-preserving (default strict mode)
 cleaner = ArnioCleaner(
     steps=[
-        ("drop_nulls",),
         ("strip_whitespace",),
+        ("fill_nulls", {"value": 0}),
     ],
-    allow_row_count_change=True,
+)
+
+# Opt-in column schema changes
+cleaner = ArnioCleaner(
+    steps=[
+        ("rename_columns", {"old_name": "new_name"}),
+        ("drop_constant_columns",),
+    ],
+    allow_schema_changes=True,
 )
 ```
 
@@ -953,14 +968,15 @@ Most operations below run natively in C++. Currently, `filter_rows`, `replace_va
 | `standardize_missing_tokens` | Replace common missing-value strings with NaN | `ar.standardize_missing_tokens(frame)` |
 | `normalize_case` | Force lower/upper/title case | `ar.normalize_case(frame, case_type="title")` |
 | `rename_columns` | Rename columns via mapping | `ar.rename_columns(frame, {"old": "new"})` |
-| `cast_types` | Cast column types | `ar.cast_types(frame, {"age": "int64"})` |
+| `cast_types` | Cast column types with `errors="raise"`, `"coerce"`, or `"ignore"` | `ar.cast_types(frame, {"age": "int64"}, errors="raise")` |
 | `round_numeric_columns` | Round numeric columns (non-numeric columns in subset ignored safely) | `ar.round_numeric_columns(frame, decimals=2)` |
 | `replace_values` | Replace values using a mapping (column or whole-frame). Handles `None`/`NaN`. | `ar.replace_values(frame, {"active": "A", "inactive": "I"}, column="status")` |
-| `clean` | Convenience shorthand | `ar.clean(frame, drop_nulls=True)` |
+| `clean` | Convenience shorthand supporting config dicts | `ar.clean(frame, strip_whitespace={"subset": ["name"]}, drop_nulls=True)` |
 | `safe_divide_columns` | Divide one column by another, handling zero/null denominators | `ar.safe_divide_columns(frame, numerator="revenue", denominator="cost", output_column="ratio")` |
 | `drop_columns_matching` | Drop columns whose names match a regex pattern | `ar.drop_columns_matching(frame, pattern="^temp_")` |
 | `trim_column_names` | Strip leading/trailing whitespace from column names | `ar.trim_column_names(frame)` |
 | `select_columns` | Return a new frame containing only selected columns | `ar.select_columns(frame, ["id", "name"])` |
+| `slugify_column_names` | Normalise column names to snake_case | `ar.slugify_column_names(frame)` |
 
 ### Rolling Windows
 You can easily extract overlapping sequential windows from 1D data using the standalone `rolling_window` helper:
@@ -1366,10 +1382,24 @@ clean = ar.pipeline(frame, suggestions)
 For low-risk automatic cleanup in one call:
 
 ```python
-clean, report = ar.auto_clean(frame, mode="strict", return_report=True)
+clean, report = ar.auto_clean(frame, return_report=True)
 ```
 
-This is the layer pandas does not try to own: profiling, data contracts, row-level validation issues, and safe cleaning suggestions for messy incoming datasets.
+For strict automatic cleanup, inspect type casts before applying them:
+
+```python
+report = ar.auto_clean(frame, mode="strict", dry_run=True)
+cast_mapping = dict(report.suggestions).get("cast_types")
+
+clean = ar.auto_clean(
+    frame,
+    mode="strict",
+    allow_lossy_casts=True,
+    confirmed_casts=cast_mapping,
+)
+```
+
+This is the layer pandas does not try to own: profiling, data contracts, row-level validation issues, and preview-gated cleaning suggestions for messy incoming datasets.
 
 <br>
 
@@ -1422,7 +1452,7 @@ Expected cleaned output with `mode="strict"`:
 | 1003 | Pranay | New York |
 | 1004 | Dhruv | Tokyo |
 
-`mode="safe"` only trims whitespace. Use `mode="strict"` when you also want deterministic built-in cleanup such as exact duplicate removal.
+`mode="safe"` only trims whitespace. Use `mode="strict"` when you also want deterministic built-in cleanup such as exact duplicate removal. If strict mode proposes type casts, run `dry_run=True` first and pass the exact proposed mapping as `confirmed_casts` with `allow_lossy_casts=True`.
 
 See [examples/auto_clean_tutorial.py](examples/auto_clean_tutorial.py) for a runnable version of this walkthrough, and [examples/schema_validation.py](examples/schema_validation.py) for a focused validation tutorial.
 
@@ -1471,7 +1501,7 @@ sharing **aggregate statistics only** or **raw/sample cell values**.
 | `report.to_dict()` | Mixed | **Yes** — includes `sample_values` and `top_values` unless you redact samples |
 | `report.to_dict(redact_sample_values=True)` | Mixed | `sample_values` → `"[REDACTED]"` (same list length); `top_values[*].value` → `"[REDACTED]"` while counts and ratios remain |
 | `report.to_markdown()`, `report.summary()` | Yes | No raw cell values in output |
-| `report.to_html()` / notebook display of `report` | Partial | **Shows `top_values`** chips; does not list `sample_values` |
+| `report.to_html()` / notebook display of `report` | Partial | **Shows `top_values`** chips; does not list `sample_values`. Use `redact_top_values=True` or `exclude_columns` for safer sharing. |
 | `report.to_pandas()` | Partial | Includes **`top_values`**, not `sample_values` |
 | `ProfileComparison.to_dict()` | Nested profiles | **Yes** — embeds `left_profile` / `right_profile` via default `to_dict()` |
 
@@ -1483,7 +1513,7 @@ controls below for safer sharing.
 - **JSON logs and artifacts:** `report.to_dict(redact_sample_values=True)` before writing or uploading.
 - **Collect fewer samples:** `ar.profile(frame, sample_size=0)` skips `sample_values` (defaults still apply to `top_values` counts on string columns).
 - **Text summaries for CI or comments:** prefer `report.to_markdown()` or `report.summary()` when you do not need per-value examples.
-- **Notebooks and HTML exports:** avoid evaluating `report` or saving `report.to_html()` for sensitive data; HTML still shows `top_values`.
+- **Notebooks and HTML exports:** use `report.to_html(redact_top_values=True)` to replace every top-value chip label with `[REDACTED]` while preserving counts and ratios. To drop entire sensitive columns from the table, add `exclude_columns=["ssn", "email"]`. Avoid saving unredacted `report.to_html()` output for sensitive data.
 - **GitHub bug reports and examples:** use synthetic data (`user@example.com`, `ID-001`), a minimal CSV, and redacted `to_dict()` output — not production dumps.
 - **Pandas export:** `ar.to_pandas(frame)` returns full table data; redaction applies to **quality reports**, not the underlying frame.
 - **Profile comparison:** `ProfileComparison.to_dict()` nests full profiles; build shared artifacts with `profile.to_dict(redact_sample_values=True)` if needed.
@@ -1500,6 +1530,11 @@ report = ar.profile(df, sample_size=2)
 
 # Safer JSON for sharing (sample_values and top_values values redacted)
 safe_json = report.to_dict(redact_sample_values=True)
+
+# Safer HTML export (top-value chip labels replaced with [REDACTED])
+safe_html = report.to_html(redact_top_values=True)
+# or exclude an entire column from the HTML table:
+# safe_html = report.to_html(redact_top_values=True, exclude_columns=["email"])
 
 # Safer text summary (no sample_values or top_values in output)
 print(report.to_markdown())
@@ -2001,7 +2036,7 @@ arnio/
 ├── tests/                   # pytest suite — CSV, cleaning, pipeline, conversions
 ├── benchmarks/              # Reproducible arnio vs pandas benchmark
 ├── examples/                # basic_usage.py, auto_clean_tutorial.py, custom_step.py and ready to run recipes for sales, customers, survey, logs, finance
-└── website/                 # Project website — arniolib.vercel.app
+└── website/                 # Project website — arnio.vercel.app
 ```
 
 <br>
@@ -2026,13 +2061,12 @@ arnio/
 <a href="https://pypi.org/project/arnio/"><img src="https://img.shields.io/pypi/dm/arnio?style=flat-square&logo=pypi&logoColor=white&labelColor=0d1117&color=3572A5&label=installs" alt="Downloads"></a>&ensp;
 <a href="https://github.com/im-anishraj/arnio/stargazers"><img src="https://img.shields.io/github/stars/im-anishraj/arnio?style=flat-square&logo=github&labelColor=0d1117&color=e3b341&label=stars" alt="Stars"></a>&ensp;
 <a href="https://github.com/im-anishraj/arnio/network/members"><img src="https://img.shields.io/github/forks/im-anishraj/arnio?style=flat-square&logo=github&labelColor=0d1117&color=8b949e&label=forks" alt="Forks"></a>&ensp;
-<a href="https://arniolib.vercel.app/"><img src="https://img.shields.io/badge/website-arniolib.vercel.app-blue?style=flat-square&labelColor=0d1117" alt="Website"></a>&ensp;
+<a href="https://arnio.vercel.app/"><img src="https://img.shields.io/badge/website-arnio.vercel.app-blue?style=flat-square&labelColor=0d1117" alt="Website"></a>&ensp;
 <a href="https://discord.gg/xsEw7r78M"><img src="https://img.shields.io/badge/community-Discord-5865F2?style=flat-square&logo=discord&logoColor=white&labelColor=0d1117" alt="Discord"></a>
 
 <br>
 
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
-
 </div>
 
 ## Security
