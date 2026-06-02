@@ -1608,8 +1608,121 @@ python -m venv .venv
 # Linux/macOS
 source .venv/bin/activate
 
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
+# list-of-dicts — column names inferred from keys
+frame = ar.from_records([
+    {"id": 1, "name": "alice", "score": 95},
+    {"id": 2, "name": "bob",   "score": 88},
+])
+
+# list-of-lists or tuples — columns must be supplied
+frame2 = ar.from_records(
+    [(1, "alice", 95), (2, "bob", 88)],
+    columns=["id", "name", "score"],
+)
+```
+
+Missing keys in dict records are filled with `None`. Nested values raise `TypeError`. An empty list raises `ValueError`.
+
+## Type Casting
+
+You can cast columns to a different data type using the `.astype()` convenience wrapper:
+
+```python
+import arnio as ar
+
+# Assume 'frame' is an existing ArFrame
+# Cast the entire frame to a single type
+float_frame = frame.astype(float)
+
+# Cast specific columns using a dictionary mapping
+casted_frame = frame.astype({"age": int})
+```
+
+#### Windows build troubleshooting
+
+If `pip install -e ".[dev]"` fails on Windows, work through this checklist before retrying:
+
+1. Install [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with the `Desktop development with C++` workload.
+2. Upgrade packaging tools:
+   ```bash
+   python -m pip install --upgrade pip setuptools wheel
+   ```
+3. Confirm the MSVC compiler is on `PATH` by running `cl` from a Developer Command Prompt.
+4. Retry the editable install:
+   ```bash
+   pip install -e ".[dev]"
+   pre-commit install
+   pytest tests/ -v
+   ```
+
+Before retrying, run the environment doctor:
+
+```bash
+python examples/check_env.py
+```
+
+If it reports `[BUILD BLOCKED]`, fix the missing compiler/CMake/NMake entry
+first. That is a build-toolchain problem, not a test failure.
+
+If you want a quick wheel-build smoke test before running the full suite, use:
+
+```bash
+pip wheel . --no-deps -w dist/
+python tests/smoke_wheel_install.py --wheelhouse dist
+```
+
+Common symptoms:
+
+- `Microsoft Visual C++ 14.x is required`: install the Build Tools workload above, then reopen your shell.
+- `'cl' is not recognized`: use a Developer Command Prompt or repair the Build Tools installation.
+- `pip install -e ".[dev]"` succeeds but `pre-commit` is missing: rerun `python -m pip install -e ".[dev]"` after upgrading `pip`, `setuptools`, and `wheel`.
+- The wheel build passes but tests fail: rerun `pytest tests/ -v` and debug the failing test output separately from the build step.
+
+If you prefer a Linux-like toolchain on Windows, WSL is also supported.
+
+### Docker development workflow
+
+If you prefer not to install local C++ toolchain dependencies, use the
+development Docker Compose setup:
+
+```bash
+# Build the image (one-time, or after pyproject.toml changes)
+make docker-rebuild
+
+# Start the development container and open a shell
+make docker-dev
+
+# Run the test suite inside the container
+make docker-test
+```
+
+The image is built with `pip install -e ".[dev]"` already applied, so
+`make docker-test` runs against a fully-initialised environment without
+re-installing on every container start. Bind-mounted files in `/workspace`
+are owned by a non-root user whose UID/GID match the host, so generated
+files (caches, build outputs) stay owned by you on the host.
+
+To override the user mapping (for example, on a system where your UID is
+not `1000`):
+
+```bash
+DEV_UID=$(id -u) DEV_GID=$(id -g) make docker-rebuild
+```
+
+> **PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/)** — `feat:`, `fix:`, `docs:`, `chore:`. Our release pipeline auto-generates changelogs from these.
+
+For GSSoC contributors, please read **[GSSOC_GUIDE.md](GSSOC_GUIDE.md)** before asking to be assigned. It explains issue claiming, contribution levels, review expectations, and what maintainers look for in a strong PR. If you want a quick onboarding refresher, see the [GSSoC FAQ](GSSOC_GUIDE.md#gssoc-faq).
+If you are new to Arnio terms, see the [contributor glossary](.github/CONTRIBUTING.md#contributor-glossary).
+
+- [Custom Pipeline Step Cookbook](docs/custom_pipeline_steps.md)
+
+<p align="center">
+<a href=".github/CONTRIBUTING.md"><b>📖 Full Contributing Guide</b></a>&ensp;·&ensp;
+<a href="GSSOC_GUIDE.md"><b>GSSoC Guide</b></a>&ensp;·&ensp;
+<a href="https://github.com/im-anishraj/arnio/issues"><b>🐛 Open Issues</b></a>&ensp;·&ensp;
+<a href="https://github.com/im-anishraj/arnio/discussions"><b>💬 Discussions</b></a>&ensp;·&ensp;
+<a href="https://discord.gg/xsEw7r78M"><b>Discord</b></a>
+</p>
 
 ### 💖 Contributors
 
