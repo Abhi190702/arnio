@@ -235,9 +235,21 @@ def to_pandas(frame: ArFrame, *, copy: bool = False) -> pd.DataFrame:
             series[mask] = pd.NA
             data[name] = series
 
-    result = pd.DataFrame(data)
+    if not data:
+        result = pd.DataFrame(index=pd.RangeIndex(cpp_frame.num_rows()))
+    else:
+        result = pd.DataFrame(data)
+    
+    # Always preserve attrs (DO NOT condition on index)
     if frame._attrs:
-        result.attrs = copy.deepcopy(frame._attrs)
+        result.attrs = copylib.deepcopy(frame._attrs)
+
+    # Restore index only if explicitly stored
+    saved_index = frame._attrs.get("_arnio_index") if frame._attrs else None
+
+    if saved_index is not None:
+        result.index = saved_index.copy()
+
     return result
 
 
@@ -306,4 +318,62 @@ def from_pandas(df: pd.DataFrame) -> ArFrame:
             dtype_hints[name] = dtype_hint
 
     cpp_frame = _Frame.from_dict(columns, dtype_hints, len(df))
-    return ArFrame(cpp_frame, attrs=copylib.deepcopy(df.attrs))
+    
+    attrs = copylib.deepcopy(df.attrs)
+
+    # Store index ONLY if it's not default RangeIndex
+
+    if not isinstance(df.index, pd.RangeIndex):
+        attrs["_arnio_index"] = df.index.copy()
+
+    return ArFrame(cpp_frame, attrs=attrs)
+
+
+def from_dict(data: dict) -> ArFrame:
+    """Converts a dictionary into a structured ArFrame.
+
+    Args:
+        data: A dictionary where keys are column names and values are lists of data.
+
+    Returns:
+        An ArFrame representation of the input dictionary.
+    """
+
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected dict datatype but instead got {type(data).__name__}")
+    if not all(isinstance(k, str) for k in data.keys()):
+        raise TypeError("All dictionary keys must be strings")
+
+    lengths = {}
+
+    for col_name, value in data.items():
+        if isinstance(value, dict):
+            raise ValueError(f"Nested objects are not supported in column '{col_name}'")
+
+        if isinstance(value, (str, bytes)):
+            raise TypeError(
+                f"Column '{col_name}' must be a sequence of values, not {type(value).__name__}"
+            )
+
+        if not hasattr(value, "__len__"):
+            raise TypeError(
+                f"Column '{col_name}' must be a sequence of values, not {type(value).__name__}"
+            )
+
+        lengths[col_name] = len(value)
+
+    if lengths:
+        unique_lengths = set(lengths.values())
+
+        if len(unique_lengths) > 1:
+            details = ", ".join(f"{name}={length}" for name, length in lengths.items())
+
+            raise ValueError(f"from_dict() column lengths differ: {details}")
+
+    df = pd.DataFrame(data)
+
+    for col_name in df.columns:
+        _check_unsupported_dtype(col_name, df[col_name])
+
+    return from_pandas(df)
+    
