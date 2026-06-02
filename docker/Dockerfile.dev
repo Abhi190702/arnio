@@ -14,5 +14,4 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-# Keep default command lightweight; dependency install happens in compose command
 CMD ["bash"]
