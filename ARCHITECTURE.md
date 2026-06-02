@@ -80,6 +80,7 @@ Support improvements for these dtypes are planned for future releases.
 ### Currently Unsupported
 The following dtype is currently unsupported:
 - `timedelta64[ns]`
+- `complex64`
 
 This requires additional parsing and inference support in the C++ runtime and is not yet available.
 
@@ -87,51 +88,9 @@ This requires additional parsing and inference support in the C++ runtime and is
 When unsupported or partially supported dtypes are encountered, Arnio should provide clear user-facing errors instead of silent failures.
 For best performance and compatibility, users are encouraged to prefer strongly typed columns such as `int64`, `float64`, `bool`, and `string`.
 
-## 5. Pipeline Execution
+## 5. Pipeline Execution & Dispatch Flow
 
 - **Null Handling:** Nulls are tracked via a separate boolean mask (`std::vector<bool>`), allowing the underlying data vectors to remain dense and cache-friendly.
-
-### Frame
-
-A Frame is an ordered collection of Column objects, representing a 2D dataset.
-
-## 6. Converting to Pandas
-
-The Frame maintains an index mapping column names to their respective Column objects for O(1) access.
-
----
-
-## 4. Pandas Dtype Compatibility
-
-Arnio supports a focused set of pandas dtypes directly through its native C++ columnar model.
-
-### Fully Supported
-
-- `int64`
-
-- `float64`
-
-- `bool`
-
-- `string`
-
-These allow efficient parsing and cleaning operations within the C++ core.
-
-### Limited/Unsupported Support
-
-- `category`
-
-- Mixed `object` columns
-
-- Nullable pandas dtypes (e.g., `Int64`)
-
-These may require conversion.
-
-`datetime64[ns]` and `timedelta64[ns]` are currently unsupported in the native runtime.
-
----
-
-## 5. Pipeline Execution & Dispatch Flow
 
 The `pipeline()` function orchestrates data flow by prioritizing C++ efficiency while allowing Python extensibility.
 
@@ -149,6 +108,15 @@ This built-in registry routes operations to highly optimized native C++ backed s
 
 If the name is absent from `_STEP_REGISTRY`, the system then checks `_PYTHON_STEP_REGISTRY` for Python-backed built-ins and custom user-defined fallback steps.
 
+### Frame
+
+A Frame is an ordered collection of Column objects, representing a 2D dataset.
+
+## 6. Converting to Pandas
+
+The Frame maintains an index mapping column names to their respective Column objects for O(1) access.
+
+---
 ### The Conversion Penalty
 
 Because Python-based steps expect a `pandas.DataFrame`, the system performs a roundtrip:
