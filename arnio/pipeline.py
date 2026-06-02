@@ -86,6 +86,12 @@ class LineageReport:
         Mapping from step name to a sorted list of original row indices that
         were dropped by that step.  Steps that dropped no rows have an empty
         list.
+
+        When the same step name appears more than once in the pipeline, all
+        drops from every invocation of that step are merged under the single
+        key in sorted order.  Use ``track_lineage=True`` together with
+        per-step timing from ``return_metadata=True`` if you need to
+        distinguish individual invocations.
     total_dropped : int
         Total number of rows dropped across all steps.
 
@@ -435,6 +441,10 @@ def pipeline(
         When True, also return a metadata dictionary with per-step timing
         information in execution order.
 
+        Cannot be combined with ``track_lineage=True``.  If you need both
+        row-level lineage and per-step timings, run the pipeline twice: once
+        with ``track_lineage=True`` and once with ``return_metadata=True``.
+
     verbose : bool, default False
         Enable lightweight diagnostic logging through the ``arnio`` logger.
         Logs step index, step name, execution path, elapsed execution
@@ -450,18 +460,28 @@ def pipeline(
         instead of a bare ``ArFrame``.  The sentinel column is always stripped
         from the returned frame before it is handed back to the caller.
 
-        Custom Python steps receive the sentinel column as a regular ``int64``
-        column and **must not drop it**; document this constraint when writing
-        custom steps that will be used with ``track_lineage=True``.
+        When the same step name appears more than once in the pipeline, all
+        drops from every invocation of that step are merged under the single
+        key in ``LineageReport.dropped_by_step``, in sorted order.
 
-        Implies a complete pass through the pipeline (equivalent to
-        ``return_metadata=False`` behaviour for the frame result); use
-        ``return_metadata=True`` separately if per-step timings are also needed.
+        **Incompatible with** ``return_metadata=True``.  Combining both raises
+        ``ValueError``.
+
+        **Input column constraint**: the input frame must not already contain a
+        column named ``__arnio_lineage_id__``.  If it does, ``pipeline`` raises
+        ``ValueError`` before any steps are executed.
+
+        **Custom step contract**: custom Python steps that are used with
+        ``track_lineage=True`` must not drop or rename the sentinel column
+        ``__arnio_lineage_id__``.  If a custom step removes the sentinel, a
+        ``PipelineStepError`` is raised immediately after that step completes.
+
+        Cannot be combined with ``return_metadata=True``.
 
     Returns
     -------
     ArFrame
-        Data frame with all steps applied sequentially (``track_lineage=False``).
+        Data frame with all steps applied sequentially (default).
     tuple[ArFrame, LineageReport]
         Frame and lineage report when ``track_lineage=True``.
     tuple[ArFrame, dict]
@@ -470,11 +490,17 @@ def pipeline(
     Raises
     ------
     TypeError
-        If ``track_lineage`` is not a bool.
+        If any parameter has an unexpected type.
     ValueError
+        If ``track_lineage=True`` and ``return_metadata=True`` are both set.
+        If ``track_lineage=True`` and the input frame already contains a column
+        named ``__arnio_lineage_id__``.
         If step format is invalid.
     UnknownStepError
         If step name is not registered.
+    PipelineStepError
+        If a custom step removes the internal lineage sentinel column while
+        ``track_lineage=True`` is active.
 
     Examples
     --------
@@ -484,6 +510,17 @@ def pipeline(
     ...     ("strip_whitespace",),
     ...     ("drop_duplicates", {"keep": "first"}),
     ... ])
+
+    Row lineage tracking:
+
+    >>> result, lineage = ar.pipeline(frame, [
+    ...     ("drop_nulls",),
+    ...     ("drop_duplicates",),
+    ... ], track_lineage=True)
+    >>> lineage.dropped_by_step
+    {"drop_nulls": [1, 4], "drop_duplicates": [7]}
+    >>> lineage.total_dropped
+    3
     """
     if not isinstance(frame, ArFrame):
         raise TypeError("frame must be an ArFrame")
@@ -499,6 +536,17 @@ def pipeline(
         raise TypeError(
             f"track_lineage must be a bool, got {type(track_lineage).__name__!r}"
         )
+
+    # Fix 1: reject the track_lineage + return_metadata combination upfront
+    # rather than silently ignoring return_metadata.
+    if track_lineage and return_metadata:
+        raise ValueError(
+            "track_lineage=True and return_metadata=True cannot be used together. "
+            "Run the pipeline twice if you need both row-level lineage and "
+            "per-step timings: once with track_lineage=True and once with "
+            "return_metadata=True."
+        )
+
     with _REGISTRY_LOCK:
         python_step_registry = dict(_PYTHON_STEP_REGISTRY)
         namespaced_builtin_steps = _get_namespaced_builtin_steps(python_step_registry)
@@ -520,10 +568,24 @@ def pipeline(
     # exactly which original row indices survive each row-dropping step.
     # The C++ engine treats it as an ordinary column and filters/deduplicates
     # it correctly alongside all other columns.
+    #
+    # Fix 3a: guard against sentinel column name collision in the input frame.
+    # DataFrame.insert would raise a raw pandas ValueError; we replace that
+    # with a clear Arnio-level error before any steps run.
+    #
+    # Fix 2: accumulate drops per step name using a dict[str, list[int]] where
+    # repeated step names extend (not overwrite) the existing list.
     _lineage_dropped_by_step: dict[str, list[int]] = {}
     _lineage_current_ids: set[int] = set()
     if track_lineage:
-        _sentinel_df = to_pandas(frame).copy()
+        _input_df = to_pandas(frame)
+        if _LINEAGE_SENTINEL_COL in _input_df.columns:
+            raise ValueError(
+                f"track_lineage=True requires that the input frame does not already "
+                f"contain a column named {_LINEAGE_SENTINEL_COL!r}.  "
+                f"Please rename or drop that column before calling pipeline()."
+            )
+        _sentinel_df = _input_df.copy()
         _sentinel_df.insert(0, _LINEAGE_SENTINEL_COL, range(len(_sentinel_df)))
         _sentinel_frame = from_pandas(_sentinel_df)
         result = _sentinel_frame
@@ -728,11 +790,33 @@ def pipeline(
         # --- per-step lineage diff ----------------------------------------
         # After each step (C++ or Python), check which sentinel IDs survived.
         # Non-dropping steps produce an empty diff naturally — no special-casing.
+        #
+        # Fix 3b: detect custom steps that removed the sentinel column and raise
+        # a clear PipelineStepError rather than letting a raw KeyError surface.
+        #
+        # Fix 2: extend rather than overwrite when the same step name appears
+        # more than once; keep the merged list in sorted order.
         if track_lineage:
             _after_pdf = to_pandas(working_frame)
+            if _LINEAGE_SENTINEL_COL not in _after_pdf.columns:
+                raise PipelineStepError(
+                    name,
+                    KeyError(
+                        f"Custom pipeline step '{name}' removed the internal lineage "
+                        f"sentinel column {_LINEAGE_SENTINEL_COL!r}.  Custom steps "
+                        f"must not drop or rename this column when track_lineage=True."
+                    ),
+                )
             _surviving_ids: set[int] = set(_after_pdf[_LINEAGE_SENTINEL_COL].tolist())
             _newly_dropped = sorted(_lineage_current_ids - _surviving_ids)
-            _lineage_dropped_by_step[name] = _newly_dropped
+            if name in _lineage_dropped_by_step:
+                # Same step name used more than once: merge and re-sort so the
+                # combined list remains ordered by original index.
+                _lineage_dropped_by_step[name] = sorted(
+                    _lineage_dropped_by_step[name] + _newly_dropped
+                )
+            else:
+                _lineage_dropped_by_step[name] = _newly_dropped
             _lineage_current_ids = _surviving_ids
         # ------------------------------------------------------------------
 

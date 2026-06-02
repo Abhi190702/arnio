@@ -68,6 +68,81 @@ class TestTrackLineageTypeValidation:
 
 
 # ---------------------------------------------------------------------------
+# Fix 1: track_lineage + return_metadata incompatibility
+# ---------------------------------------------------------------------------
+
+
+class TestTrackLineageAndReturnMetadataIncompatible:
+    """track_lineage=True and return_metadata=True must be rejected upfront."""
+
+    def test_both_true_raises_value_error(self):
+        frame = _make_frame({"x": [1, 2, 3]})
+        with pytest.raises(ValueError, match="track_lineage"):
+            ar.pipeline(
+                frame,
+                [("strip_whitespace",)],
+                track_lineage=True,
+                return_metadata=True,
+            )
+
+    def test_error_message_mentions_return_metadata(self):
+        frame = _make_frame({"x": [1, 2, 3]})
+        with pytest.raises(ValueError, match="return_metadata"):
+            ar.pipeline(
+                frame,
+                [("drop_nulls",)],
+                track_lineage=True,
+                return_metadata=True,
+            )
+
+    def test_error_raised_before_any_step_executes(self):
+        """The error must fire before pipeline execution, not mid-run."""
+        call_log: list[str] = []
+
+        def spy_step(df: pd.DataFrame) -> pd.DataFrame:
+            call_log.append("executed")
+            return df
+
+        ar.register_step("spy_step_incompatible", spy_step)
+        try:
+            frame = _make_frame({"x": [1, 2, 3]})
+            with pytest.raises(ValueError):
+                ar.pipeline(
+                    frame,
+                    [("spy_step_incompatible",)],
+                    track_lineage=True,
+                    return_metadata=True,
+                )
+            assert call_log == [], "spy step must not have been called"
+        finally:
+            ar.unregister_step("spy_step_incompatible")
+
+    def test_track_lineage_true_return_metadata_false_is_allowed(self):
+        """Explicit return_metadata=False must not raise."""
+        frame = _make_frame({"x": [1, 2, 3]})
+        result, lineage = ar.pipeline(
+            frame,
+            [("strip_whitespace",)],
+            track_lineage=True,
+            return_metadata=False,
+        )
+        assert isinstance(result, ar.ArFrame)
+        assert isinstance(lineage, LineageReport)
+
+    def test_track_lineage_false_return_metadata_true_is_allowed(self):
+        """The original return_metadata path must be unaffected."""
+        frame = _make_frame({"x": [1, 2, 3]})
+        result, meta = ar.pipeline(
+            frame,
+            [("strip_whitespace",)],
+            track_lineage=False,
+            return_metadata=True,
+        )
+        assert isinstance(result, ar.ArFrame)
+        assert "step_timings" in meta
+
+
+# ---------------------------------------------------------------------------
 # Default behaviour unchanged
 # ---------------------------------------------------------------------------
 
@@ -116,6 +191,214 @@ class TestSentinelColumnStripped:
         result, _ = ar.pipeline(frame, [("drop_nulls",)], track_lineage=True)
         result_col_count = len(ar.to_pandas(result).columns)
         assert result_col_count == original_col_count
+
+
+# ---------------------------------------------------------------------------
+# Fix 3a: sentinel column collision in the input frame
+# ---------------------------------------------------------------------------
+
+
+class TestSentinelColumnCollision:
+    """Input frames that already contain __arnio_lineage_id__ must be rejected."""
+
+    def test_raises_value_error_when_sentinel_col_exists(self):
+        frame = _make_frame({"__arnio_lineage_id__": [10, 20, 30], "x": [1, 2, 3]})
+        with pytest.raises(ValueError, match="__arnio_lineage_id__"):
+            ar.pipeline(frame, [("drop_nulls",)], track_lineage=True)
+
+    def test_error_message_is_actionable(self):
+        """Error should tell the user to rename or drop the column."""
+        frame = _make_frame({"__arnio_lineage_id__": [1], "y": [2]})
+        with pytest.raises(ValueError, match="rename or drop"):
+            ar.pipeline(frame, [("strip_whitespace",)], track_lineage=True)
+
+    def test_error_raised_before_any_steps_execute(self):
+        """No steps should run when the sentinel collision is detected upfront."""
+        call_log: list[str] = []
+
+        def spy_step(df: pd.DataFrame) -> pd.DataFrame:
+            call_log.append("executed")
+            return df
+
+        ar.register_step("spy_step_collision", spy_step)
+        try:
+            frame = _make_frame({"__arnio_lineage_id__": [1, 2], "x": [3, 4]})
+            with pytest.raises(ValueError):
+                ar.pipeline(
+                    frame,
+                    [("spy_step_collision",)],
+                    track_lineage=True,
+                )
+            assert call_log == [], "spy step must not have been called"
+        finally:
+            ar.unregister_step("spy_step_collision")
+
+    def test_no_collision_when_track_lineage_false(self):
+        """A frame with that column name is fine when track_lineage is off."""
+        frame = _make_frame({"__arnio_lineage_id__": [1, 2, 3]})
+        result = ar.pipeline(frame, [("strip_whitespace",)], track_lineage=False)
+        df = ar.to_pandas(result)
+        assert "__arnio_lineage_id__" in df.columns
+
+
+# ---------------------------------------------------------------------------
+# Fix 3b: custom step removes the sentinel column
+# ---------------------------------------------------------------------------
+
+
+class TestSentinelColumnRemovedByCustomStep:
+    """Custom steps that drop the sentinel must raise PipelineStepError."""
+
+    def test_raises_pipeline_step_error_when_sentinel_removed(self):
+        from arnio.exceptions import PipelineStepError
+
+        def bad_step(df: pd.DataFrame) -> pd.DataFrame:
+            return df.drop(columns=["__arnio_lineage_id__"], errors="ignore")
+
+        ar.register_step("bad_step_removes_sentinel", bad_step)
+        try:
+            frame = _make_frame({"x": [1, 2, 3]})
+            with pytest.raises(PipelineStepError):
+                ar.pipeline(
+                    frame,
+                    [("bad_step_removes_sentinel",)],
+                    track_lineage=True,
+                )
+        finally:
+            ar.unregister_step("bad_step_removes_sentinel")
+
+    def test_error_names_the_offending_step(self):
+        from arnio.exceptions import PipelineStepError
+
+        def drop_sentinel(df: pd.DataFrame) -> pd.DataFrame:
+            return df.drop(columns=["__arnio_lineage_id__"], errors="ignore")
+
+        ar.register_step("drop_sentinel_step", drop_sentinel)
+        try:
+            frame = _make_frame({"x": [1, 2, 3]})
+            with pytest.raises(PipelineStepError, match="drop_sentinel_step"):
+                ar.pipeline(
+                    frame,
+                    [("drop_sentinel_step",)],
+                    track_lineage=True,
+                )
+        finally:
+            ar.unregister_step("drop_sentinel_step")
+
+    def test_well_behaved_custom_step_does_not_raise(self):
+        """A custom step that leaves the sentinel intact must work fine."""
+
+        def good_step(df: pd.DataFrame) -> pd.DataFrame:
+            df = df.copy()
+            if "x" in df.columns:
+                df["x"] = df["x"] * 2
+            return df
+
+        ar.register_step("good_step_sentinel", good_step)
+        try:
+            frame = _make_frame({"x": [1, 2, 3]})
+            result, lineage = ar.pipeline(
+                frame,
+                [("good_step_sentinel",)],
+                track_lineage=True,
+            )
+            assert isinstance(result, ar.ArFrame)
+            assert "__arnio_lineage_id__" not in ar.to_pandas(result).columns
+        finally:
+            ar.unregister_step("good_step_sentinel")
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: repeated step names accumulate rather than overwrite
+# ---------------------------------------------------------------------------
+
+
+class TestLineageRepeatedStepNames:
+    """Same step name used more than once must merge, not overwrite, drops."""
+
+    def test_same_dropping_step_twice_accumulates_indices(self):
+        #  Pass 1 drop_nulls drops rows with null in col 'a' (original row 1).
+        #  Pass 2 drop_nulls has nothing left to drop.
+        #  But if we arrange two null-producing situations across two subsets
+        #  we can isolate each pass.
+        #
+        #  Simpler: just check that both passes contribute to a single key.
+        #  Row 0: a=1,   b=1   — kept both passes
+        #  Row 1: a=None,b=1   — dropped pass 1 (subset=["a"])
+        #  Row 2: a=2,   b=None — dropped pass 2 (subset=["b"])
+        frame = _make_frame({"a": [1, None, 2], "b": [1, 1, None]})
+        _, lineage = ar.pipeline(
+            frame,
+            [
+                ("drop_nulls", {"subset": ["a"]}),
+                ("drop_nulls", {"subset": ["b"]}),
+            ],
+            track_lineage=True,
+        )
+        # Both drops land under the single "drop_nulls" key, sorted.
+        assert lineage.dropped_by_step["drop_nulls"] == [1, 2]
+
+    def test_repeated_step_total_dropped_is_correct(self):
+        frame = _make_frame({"a": [1, None, 2], "b": [1, 1, None]})
+        _, lineage = ar.pipeline(
+            frame,
+            [
+                ("drop_nulls", {"subset": ["a"]}),
+                ("drop_nulls", {"subset": ["b"]}),
+            ],
+            track_lineage=True,
+        )
+        assert lineage.total_dropped == 2
+
+    def test_repeated_step_drops_are_sorted_by_original_index(self):
+        #  Arrange so the second pass drops a lower original index than the first.
+        #  Row 0: a=None, b=1   — dropped by pass 2 (subset=["a"] after pass 1 runs)
+        #  Row 1: a=1,    b=None — dropped by pass 1 (subset=["b"])
+        #
+        #  Actually the sentinel tracks original indices, so regardless of which
+        #  pass ran first the merged list must be [0, 1] not [1, 0].
+        frame = _make_frame({"a": [None, 1], "b": [1, None]})
+        _, lineage = ar.pipeline(
+            frame,
+            [
+                ("drop_nulls", {"subset": ["b"]}),
+                ("drop_nulls", {"subset": ["a"]}),
+            ],
+            track_lineage=True,
+        )
+        assert lineage.dropped_by_step["drop_nulls"] == [0, 1]
+
+    def test_to_pandas_includes_all_rows_from_repeated_step(self):
+        frame = _make_frame({"a": [1, None, 2], "b": [1, 1, None]})
+        _, lineage = ar.pipeline(
+            frame,
+            [
+                ("drop_nulls", {"subset": ["a"]}),
+                ("drop_nulls", {"subset": ["b"]}),
+            ],
+            track_lineage=True,
+        )
+        df = lineage.to_pandas()
+        assert len(df) == 2
+        assert set(df["step"].tolist()) == {"drop_nulls"}
+        assert sorted(df["original_index"].tolist()) == [1, 2]
+
+    def test_first_invocation_drops_not_lost(self):
+        """Regression: the first pass's drops must survive the second pass."""
+        frame = _make_frame({"x": [None, 1, None, 2]})
+        _, lineage = ar.pipeline(
+            frame,
+            [
+                # Pass 1 drops rows 0 and 2.
+                ("drop_nulls",),
+                # Pass 2 has nothing to drop (all remaining rows are non-null).
+                ("drop_nulls",),
+            ],
+            track_lineage=True,
+        )
+        assert 0 in lineage.dropped_by_step["drop_nulls"]
+        assert 2 in lineage.dropped_by_step["drop_nulls"]
+        assert lineage.total_dropped == 2
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +469,6 @@ class TestLineageDropDuplicates:
 
 class TestLineageFilterRows:
     def test_filter_rows_records_correct_indices(self):
-        #  Row 0: age=30 — dropped (not > 25 is False; 30 > 25 so KEPT)
-        #  Wait: filter_rows keeps rows WHERE condition is True.
         #  age > 25: rows 0 (30>25=True), 2 (35>25=True) kept; row 1 (25>25=False) dropped.
         frame = _make_frame({"age": [30, 25, 35]})
         _, lineage = ar.pipeline(
