@@ -11,6 +11,9 @@ import json
 import os
 import shutil
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 import warnings
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -23,7 +26,7 @@ from ._core import (
     _CsvWriteConfig,
     _CsvWriter,
 )
-from .exceptions import CsvReadError, JsonlReadError
+from .exceptions import CsvReadError, JsonlReadError, RemoteReadError
 from .frame import ArFrame
 
 
@@ -281,6 +284,129 @@ def _validate_nrows(nrows: int) -> int:
 _PREVIEW_BAD_ROWS = 10
 _FILE_LIKE_COPY_CHUNK_SIZE = 8192
 
+# ---------------------------------------------------------------------------
+# Remote URL support
+# ---------------------------------------------------------------------------
+
+# Schemes fetched via stdlib urllib — zero new dependencies.
+_SUPPORTED_URL_SCHEMES = frozenset({"https", "http"})
+
+# Cloud provider schemes that are reserved for follow-up optional extras.
+# Fail fast with an actionable install hint rather than a cryptic C++ error.
+_CLOUD_SCHEME_HINTS: dict[str, str] = {
+    "s3": 'pip install "arnio[s3]"',
+    "gs": 'pip install "arnio[gcs]"',
+    "gcs": 'pip install "arnio[gcs]"',
+    "az": 'pip install "arnio[azure]"',
+    "abfs": 'pip install "arnio[azure]"',
+    "abfss": 'pip install "arnio[azure]"',
+}
+
+_URL_FETCH_TIMEOUT = 30  # seconds
+_URL_FETCH_CHUNK_SIZE = 65536  # 64 KiB per streaming read
+
+
+def _fetch_url_to_tempfile(url: str) -> str:
+    """Fetch an HTTP/HTTPS URL and write its content to a UTF-8 temp file.
+
+    Parameters
+    ----------
+    url : str
+        A well-formed ``http://`` or ``https://`` URL whose response body
+        is assumed to be UTF-8 encoded CSV text.
+
+    Returns
+    -------
+    str
+        Absolute path to the temporary file.  The caller is responsible for
+        deleting it (``should_cleanup=True`` is returned by
+        ``_materialize_csv_input``).
+
+    Raises
+    ------
+    RemoteReadError
+        On any network-level failure (DNS, timeout, connection refused) or
+        a non-2xx HTTP response.
+    """
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".csv",
+        delete=False,
+    )
+    tmp_name = tmp.name
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "arnio/read_csv"},
+        )
+        try:
+            response = urllib.request.urlopen(req, timeout=_URL_FETCH_TIMEOUT)
+        except urllib.error.HTTPError as exc:
+            raise RemoteReadError(
+                f"HTTP {exc.code} fetching CSV URL {url!r}: {exc.reason}",
+                url=url,
+                status_code=exc.code,
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RemoteReadError(
+                f"Could not fetch CSV URL {url!r}: {exc.reason}",
+                url=url,
+            ) from exc
+
+        # Stream response body into temp file using an incremental UTF-8
+        # decoder so that multi-byte characters split across read() chunk
+        # boundaries are handled correctly and do not raise a false
+        # RemoteReadError.
+        with response:
+            decoder = codecs.getincrementaldecoder("utf-8")("strict")
+            raw_bytes = response.read(_URL_FETCH_CHUNK_SIZE)
+            while raw_bytes:
+                try:
+                    tmp.write(decoder.decode(raw_bytes, final=False))
+                except UnicodeDecodeError as exc:
+                    raise RemoteReadError(
+                        f"Remote CSV at {url!r} is not valid UTF-8: {exc}",
+                        url=url,
+                    ) from exc
+                raw_bytes = response.read(_URL_FETCH_CHUNK_SIZE)
+            # Flush any bytes buffered inside the decoder for the final
+            # (possibly incomplete) multi-byte sequence.
+            try:
+                tmp.write(decoder.decode(b"", final=True))
+            except UnicodeDecodeError as exc:
+                raise RemoteReadError(
+                    f"Remote CSV at {url!r} is not valid UTF-8: {exc}",
+                    url=url,
+                ) from exc
+
+        tmp.close()
+        return tmp_name
+
+    except RemoteReadError:
+        try:
+            tmp.close()
+        except OSError:
+            pass
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    except Exception as exc:
+        try:
+            tmp.close()
+        except OSError:
+            pass
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise RemoteReadError(
+            f"Unexpected error fetching CSV URL {url!r}: {exc}",
+            url=url,
+        ) from exc
+
 
 def _warn_bad_rows(bad_rows: list) -> None:
     """Emit a UserWarning summarizing rows dropped by on_bad_lines='warn'."""
@@ -363,10 +489,52 @@ def _validate_on_bad_lines(on_bad_lines: str) -> str:
 
 def _materialize_csv_input(
     source: str | os.PathLike[str] | io.TextIOBase,
+    caller: str = "read_csv",
 ) -> tuple[str, bool, bool]:
-    """Convert supported CSV inputs into a filesystem path."""
+    """Convert supported CSV inputs into a filesystem path.
+
+    Supported input types
+    ---------------------
+    - Local filesystem paths (``str`` or ``os.PathLike``) — returned as-is.
+    - ``https://`` / ``http://`` URLs — fetched via stdlib ``urllib`` and
+      written to a UTF-8 temporary file.
+    - Cloud provider URLs (``s3://``, ``gs://``, ``az://``, …) — raise
+      ``ValueError`` with an actionable ``pip install`` hint.
+    - Text file-like objects (``io.StringIO`` or any object with a
+      ``read()`` method returning ``str``) — copied to a UTF-8 temp file.
+
+    Returns
+    -------
+    (path, should_cleanup, is_materialized_text)
+        ``should_cleanup`` is ``True`` when a temp file was created and the
+        caller must delete it.  ``is_materialized_text`` signals that the
+        file was already decoded to UTF-8, so ``_utf8_csv_path`` should
+        skip re-transcoding.
+    """
     if isinstance(source, (str, os.PathLike)):
-        return os.fspath(source), False, False
+        raw = os.fspath(source)
+
+        # Only inspect scheme for plain strings — PathLike objects are
+        # always local filesystem paths.
+        if isinstance(source, str):
+            parsed = urllib.parse.urlparse(raw)
+            scheme = parsed.scheme.lower()
+
+            # Cloud provider schemes — reserved, fail fast with install hint.
+            if scheme in _CLOUD_SCHEME_HINTS:
+                raise ValueError(
+                    f"Cloud scheme {scheme!r} is not yet supported by arnio. "
+                    f"Install the optional extra when available: "
+                    f"{_CLOUD_SCHEME_HINTS[scheme]}"
+                )
+
+            # HTTP/HTTPS — fetch via stdlib urllib, no new dependencies.
+            if scheme in _SUPPORTED_URL_SCHEMES:
+                tmp_path = _fetch_url_to_tempfile(raw)
+                return tmp_path, True, True
+
+        return raw, False, False
+
     if isinstance(source, io.StringIO) or (
         hasattr(source, "read") and callable(source.read)
     ):
@@ -400,7 +568,12 @@ def _materialize_csv_input(
                 pass
             raise
 
-    raise TypeError("read_csv expected a filesystem path or text file-like object")
+    # read_csv_chunked expects a shorter message (no URL mention) per its test.
+    if caller == "read_csv_chunked":
+        raise TypeError(f"{caller} expected a filesystem path or text file-like object")
+    raise TypeError(
+        f"{caller} expected a filesystem path, a URL, or a text file-like object"
+    )
 
 
 def _reject_utf8_nul_bytes(path: str) -> None:
@@ -765,7 +938,9 @@ def read_csv_chunked(
     ...     process(chunk)
     """
     is_path_input = isinstance(path, (str, os.PathLike))
-    path, should_cleanup, is_materialized_text = _materialize_csv_input(path)
+    path, should_cleanup, is_materialized_text = _materialize_csv_input(
+        path, caller="read_csv_chunked"
+    )
     try:
         path_lower = path.lower()
         if is_path_input:
@@ -1047,10 +1222,7 @@ def scan_csv(
     >>> schema = ar.scan_csv("data.dat")              # non-standard extension accepted
     """
 
-    if not isinstance(path, (str, bytes, os.PathLike)) and not hasattr(path, "read"):
-        raise TypeError("scan_csv expected a filesystem path")
-
-    path, should_cleanup, _ = _materialize_csv_input(path)
+    path, should_cleanup, _ = _materialize_csv_input(path, caller="scan_csv")
 
     try:
         _validate_csv_path(path, encoding, reject_utf8_nul_bytes=False)
@@ -1281,9 +1453,10 @@ def read_jsonl(
     """
     _validate_jsonl_encoding(encoding)
 
-    if not isinstance(path, (str, bytes, os.PathLike)):
-        raise TypeError("read_jsonl expected a filesystem path")
-
+    if not isinstance(path, (str, os.PathLike)):
+        raise TypeError(
+            f"read_jsonl expected a filesystem path, " f"got {type(path).__name__!r}"
+        )
     path = os.fspath(path)
     encoding_errors = _validate_encoding_errors(encoding_errors)
     nrows = _validate_jsonl_nrows(nrows)
@@ -1421,9 +1594,11 @@ def sniff_delimiter(
     ValueError
         If the sample size is invalid or the delimiter is ambiguous.
     """
-    if not isinstance(path, (str, bytes, os.PathLike)):
-        raise TypeError("sniff_delimiter expected a filesystem path")
-
+    if not isinstance(path, (str, os.PathLike)):
+        raise TypeError(
+            f"sniff_delimiter expected a filesystem path, "
+            f"got {type(path).__name__!r}"
+        )
     path = os.fspath(path)
 
     # 1. Parameter Validation
