@@ -1535,4 +1535,3 @@ def write_parquet(
         kwargs["row_group_size"] = row_group_size
 
     df.to_parquet(path, **kwargs)
-
