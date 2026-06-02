@@ -444,3 +444,5 @@ print("Validation passed.")
 ```
 
 ---
+
+*Fixes #2271.*
