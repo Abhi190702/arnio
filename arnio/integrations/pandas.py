@@ -7,8 +7,8 @@ from typing import Any
 
 import pandas as pd
 
-
 from arnio.convert import from_pandas, to_pandas
+from arnio.diff import DataFrameDiffReport, diff_dataframes
 from arnio.frame import ArFrame
 from arnio.pipeline import pipeline as run_pipeline
 from arnio.quality import (
@@ -19,7 +19,6 @@ from arnio.quality import (
     suggest_cleaning,
 )
 from arnio.schema import Schema, ValidationResult, validate
-from arnio.diff import DataFrameDiffReport, diff_dataframes
 
 
 @pd.api.extensions.register_dataframe_accessor("arnio")
@@ -175,4 +174,6 @@ class ArnioPandasAccessor:
         null_ratio_threshold : float, default 0.0
             Minimum absolute change in null ratio to flag as drift.
         """
-        return diff_dataframes(self._df, other, null_ratio_threshold=null_ratio_threshold)
+        return diff_dataframes(
+            self._df, other, null_ratio_threshold=null_ratio_threshold
+        )

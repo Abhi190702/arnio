@@ -76,20 +76,22 @@ class DataFrameDiffReport:
         """True if there are no column diffs and no row count delta."""
         return not self.column_diffs and self.row_count_delta == 0
 
-    def summary(self) -> dict[str, Any]:
-        """Return a compact summary of the drift report."""
+    def summary(self) -> str:
+        """Return a compact human-readable summary of the drift report."""
         by_change: dict[str, int] = {}
         for cd in self.column_diffs:
             by_change[cd.change] = by_change.get(cd.change, 0) + 1
-        return {
-            "is_clean": self.is_clean,
-            "has_breaking_changes": self.has_breaking_changes,
-            "expected_row_count": self.expected_row_count,
-            "observed_row_count": self.observed_row_count,
-            "row_count_delta": self.row_count_delta,
-            "column_diff_count": len(self.column_diffs),
-            "diffs_by_change": by_change,
-        }
+
+        parts = [
+            f"status: {'clean' if self.is_clean else 'drifted'}",
+            f"breaking_changes: {'yes' if self.has_breaking_changes else 'no'}",
+            f"rows: {self.expected_row_count} -> {self.observed_row_count} (delta: {self.row_count_delta:+d})",
+            f"column_diffs: {len(self.column_diffs)}",
+        ]
+        if by_change:
+            breakdown = ", ".join(f"{k}={v}" for k, v in sorted(by_change.items()))
+            parts.append(f"changes: {breakdown}")
+        return "\n".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-friendly dictionary."""

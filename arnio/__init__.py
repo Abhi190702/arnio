@@ -39,6 +39,7 @@ from .cleaning import (
     winsorize_outliers,
 )
 from .convert import from_dict, from_pandas, from_polars, to_arrow, to_pandas, to_polars
+from .diff import ColumnDiff, DataFrameDiffReport, diff_dataframes
 from .exceptions import (
     ArnioError,
     CsvReadError,
@@ -114,7 +115,6 @@ from .schema import (
     validate,
 )
 from .schema_export import schema_to_dict, schema_to_yaml
-from .diff import ColumnDiff, DataFrameDiffReport, diff_dataframes
 
 from_records = ArFrame.from_records
 

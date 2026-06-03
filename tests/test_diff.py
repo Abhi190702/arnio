@@ -170,11 +170,10 @@ def test_report_summary_keys():
     df2 = pd.DataFrame({"a": [1, 2, 3]})
     report = diff_dataframes(df1, df2)
     s = report.summary()
-    assert "is_clean" in s
-    assert "has_breaking_changes" in s
-    assert "row_count_delta" in s
-    assert "column_diff_count" in s
-    assert "diffs_by_change" in s
+    assert isinstance(s, str)
+    assert "status" in s
+    assert "rows" in s
+    assert "breaking_changes" in s
 
 
 def test_report_to_dict_structure():
