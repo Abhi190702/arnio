@@ -257,14 +257,16 @@ def to_pandas(frame: ArFrame, *, copy: bool = False) -> pd.DataFrame:
         result = pd.DataFrame(index=pd.RangeIndex(cpp_frame.num_rows()))
     else:
         result = pd.DataFrame(data)
+    
+    # Always preserve attrs (DO NOT condition on index)
     if frame._attrs:
-        attrs = copylib.deepcopy(frame._attrs)
-        
-        if "_arnio_index" in attrs:
-            result.attrs = copylib.deepcopy(frame._attrs)
+        result.attrs = copylib.deepcopy(frame._attrs)
 
-            if "_arnio_index" in frame._attrs:
-                result.index = frame._attrs["_arnio_index"].copy()
+    # Restore index only if explicitly stored
+    saved_index = frame._attrs.get("_arnio_index") if frame._attrs else None
+
+    if saved_index is not None:
+        result.index = saved_index.copy()
 
     return result
 
@@ -425,7 +427,11 @@ def from_pandas(df: pd.DataFrame) -> ArFrame:
 
     cpp_frame = _Frame.from_dict(columns, dtype_hints, len(df))
     attrs = copylib.deepcopy(df.attrs)
-    attrs["_arnio_index"] = df.index.copy()
+
+    # Store index ONLY if it's not default RangeIndex
+
+    if not isinstance(df.index, pd.RangeIndex):
+        attrs["_arnio_index"] = df.index.copy()
 
     return ArFrame(cpp_frame, attrs=attrs)
 
