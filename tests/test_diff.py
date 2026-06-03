@@ -1,10 +1,9 @@
 """Tests for arnio DataFrame drift detection (diff_dataframes, DataFrameDiffReport)."""
 
-import pytest
 import pandas as pd
+import pytest
 
 from arnio.diff import ColumnDiff, DataFrameDiffReport, diff_dataframes
-
 
 
 def test_diff_dataframes_raises_for_non_dataframe_expected():
@@ -144,19 +143,25 @@ def test_diff_dataframes_row_count_delta_zero_is_not_breaking():
 
 def test_report_has_breaking_changes_for_removed_column():
     diffs = [ColumnDiff(name="x", change="removed", expected_dtype="int64")]
-    report = DataFrameDiffReport(expected_row_count=2, observed_row_count=2, column_diffs=diffs)
+    report = DataFrameDiffReport(
+        expected_row_count=2, observed_row_count=2, column_diffs=diffs
+    )
     assert report.has_breaking_changes is True
 
 
 def test_report_has_breaking_changes_false_for_added_column():
     diffs = [ColumnDiff(name="x", change="added", observed_dtype="int64")]
-    report = DataFrameDiffReport(expected_row_count=2, observed_row_count=2, column_diffs=diffs)
+    report = DataFrameDiffReport(
+        expected_row_count=2, observed_row_count=2, column_diffs=diffs
+    )
     assert report.has_breaking_changes is False
 
 
 def test_report_is_clean_false_when_diffs_present():
     diffs = [ColumnDiff(name="x", change="added", observed_dtype="string")]
-    report = DataFrameDiffReport(expected_row_count=1, observed_row_count=1, column_diffs=diffs)
+    report = DataFrameDiffReport(
+        expected_row_count=1, observed_row_count=1, column_diffs=diffs
+    )
     assert report.is_clean is False
 
 
@@ -214,9 +219,15 @@ def test_report_raises_for_non_int_row_count():
 
 def test_report_raises_for_non_list_column_diffs():
     with pytest.raises(TypeError):
-        DataFrameDiffReport(expected_row_count=0, observed_row_count=0, column_diffs="bad")
+        DataFrameDiffReport(
+            expected_row_count=0, observed_row_count=0, column_diffs="bad"
+        )
 
 
 def test_report_raises_for_invalid_column_diff_item():
     with pytest.raises(TypeError):
-        DataFrameDiffReport(expected_row_count=0, observed_row_count=0, column_diffs=["not a ColumnDiff"])
+        DataFrameDiffReport(
+            expected_row_count=0,
+            observed_row_count=0,
+            column_diffs=["not a ColumnDiff"],
+        )

@@ -42,11 +42,15 @@ class DataFrameDiffReport:
     column_diffs: list[ColumnDiff] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.expected_row_count, int) or isinstance(self.expected_row_count, bool):
+        if not isinstance(self.expected_row_count, int) or isinstance(
+            self.expected_row_count, bool
+        ):
             raise TypeError("expected_row_count must be an int")
         if self.expected_row_count < 0:
             raise ValueError("expected_row_count must be >= 0")
-        if not isinstance(self.observed_row_count, int) or isinstance(self.observed_row_count, bool):
+        if not isinstance(self.observed_row_count, int) or isinstance(
+            self.observed_row_count, bool
+        ):
             raise TypeError("observed_row_count must be an int")
         if self.observed_row_count < 0:
             raise ValueError("observed_row_count must be >= 0")
@@ -112,12 +116,15 @@ class DataFrameDiffReport:
         if not self.column_diffs:
             return "\n".join(lines)
 
-        lines.extend([
-            "",
-            "| Column | Change | Expected dtype | Observed dtype | Expected null% | Observed null% |",
-            "|---|---|---|---|---|---|",
-        ])
+        lines.extend(
+            [
+                "",
+                "| Column | Change | Expected dtype | Observed dtype | Expected null% | Observed null% |",
+                "|---|---|---|---|---|---|",
+            ]
+        )
         for cd in self.column_diffs:
+
             def _fmt(v: Any) -> str:
                 if v is None:
                     return ""
@@ -193,10 +200,16 @@ def diff_dataframes(
         If null_ratio_threshold is not in [0.0, 1.0].
     """
     if not isinstance(expected, pd.DataFrame):
-        raise TypeError(f"expected must be a pandas DataFrame, got {type(expected).__name__}")
+        raise TypeError(
+            f"expected must be a pandas DataFrame, got {type(expected).__name__}"
+        )
     if not isinstance(observed, pd.DataFrame):
-        raise TypeError(f"observed must be a pandas DataFrame, got {type(observed).__name__}")
-    if not isinstance(null_ratio_threshold, (int, float)) or isinstance(null_ratio_threshold, bool):
+        raise TypeError(
+            f"observed must be a pandas DataFrame, got {type(observed).__name__}"
+        )
+    if not isinstance(null_ratio_threshold, (int, float)) or isinstance(
+        null_ratio_threshold, bool
+    ):
         raise TypeError("null_ratio_threshold must be a float")
     if not (0.0 <= null_ratio_threshold <= 1.0):
         raise ValueError("null_ratio_threshold must be between 0.0 and 1.0")
@@ -207,19 +220,23 @@ def diff_dataframes(
 
     # Removed columns
     for col in sorted(expected_cols - observed_cols):
-        diffs.append(ColumnDiff(
-            name=col,
-            change="removed",
-            expected_dtype=_infer_dtype(expected[col]),
-        ))
+        diffs.append(
+            ColumnDiff(
+                name=col,
+                change="removed",
+                expected_dtype=_infer_dtype(expected[col]),
+            )
+        )
 
     # Added columns
     for col in sorted(observed_cols - expected_cols):
-        diffs.append(ColumnDiff(
-            name=col,
-            change="added",
-            observed_dtype=_infer_dtype(observed[col]),
-        ))
+        diffs.append(
+            ColumnDiff(
+                name=col,
+                change="added",
+                observed_dtype=_infer_dtype(observed[col]),
+            )
+        )
 
     # Common columns check dtype and null ratio
     for col in sorted(expected_cols & observed_cols):
@@ -227,26 +244,30 @@ def diff_dataframes(
         obs_dtype = _infer_dtype(observed[col])
 
         if exp_dtype != obs_dtype:
-            diffs.append(ColumnDiff(
-                name=col,
-                change="dtype_changed",
-                expected_dtype=exp_dtype,
-                observed_dtype=obs_dtype,
-            ))
+            diffs.append(
+                ColumnDiff(
+                    name=col,
+                    change="dtype_changed",
+                    expected_dtype=exp_dtype,
+                    observed_dtype=obs_dtype,
+                )
+            )
             continue  # dtype change is already breaking; skip null ratio for this col
 
         exp_null = _null_ratio(expected[col])
         obs_null = _null_ratio(observed[col])
 
         if abs(obs_null - exp_null) > null_ratio_threshold:
-            diffs.append(ColumnDiff(
-                name=col,
-                change="null_ratio_changed",
-                expected_dtype=exp_dtype,
-                observed_dtype=obs_dtype,
-                expected_null_ratio=exp_null,
-                observed_null_ratio=obs_null,
-            ))
+            diffs.append(
+                ColumnDiff(
+                    name=col,
+                    change="null_ratio_changed",
+                    expected_dtype=exp_dtype,
+                    observed_dtype=obs_dtype,
+                    expected_null_ratio=exp_null,
+                    observed_null_ratio=obs_null,
+                )
+            )
 
     return DataFrameDiffReport(
         expected_row_count=len(expected),
