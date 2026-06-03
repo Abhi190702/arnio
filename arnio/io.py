@@ -905,10 +905,12 @@ def read_csv_chunked(
     ----------
     path : str or file-like object
         Filesystem path or text file-like object containing CSV data.
-        Any file extension is accepted. For ``.tsv`` files, the delimiter is
+        Any file extension is accepted.
         Text file-like objects are copied to a temporary file in bounded
         chunks before native parsing.
-        automatically set to `'\t'` when `delimiter` is omitted.
+        For ``.tsv`` files, the delimiter is automatically set to ``'\t'``
+        when ``delimiter`` is omitted.
+
     chunksize : int, default 10_000
         Maximum number of data rows per yielded chunk.
     delimiter : str or None, default None
