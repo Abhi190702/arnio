@@ -155,6 +155,11 @@ class ArFrame:
                             f"nested values are not supported; "
                             f"column {col!r} at row {i} contains a {type(val).__name__!r}"
                         )
+            if columns is not None and len(columns) == 0:
+                raise ValueError(
+                    "columns must not be empty when records are dicts; "
+                    "pass columns=None to infer column names from the record keys"
+                )
             df = pd.DataFrame.from_records(records, columns=columns)
 
         elif isinstance(first, (list, tuple)):
@@ -483,6 +488,43 @@ class ArFrame:
                     for row in range(row_count)
                 ],
             }
+
+    def to_csv(
+        self,
+        path,
+        *,
+        delimiter: str = ",",
+        write_header: bool = True,
+        **kwargs,
+    ) -> None:
+        """Write the ArFrame to a CSV file.
+
+        This is a convenience wrapper around :func:`arnio.write_csv`.
+
+        Parameters
+        ----------
+        path : str or file-like
+            Destination file path.
+        delimiter : str, default ","
+            Field delimiter character.
+        write_header : bool, default True
+            Whether to write the column header row.
+        **kwargs
+            Additional arguments passed to :func:`arnio.write_csv` such as `line_terminator`.
+
+        Examples
+        --------
+        >>> frame.to_csv("output.csv")
+        """
+        from .io import write_csv
+
+        write_csv(
+            self,
+            path,
+            delimiter=delimiter,
+            write_header=write_header,
+            **kwargs,
+        )
 
     def select_columns(self, columns: list[str]) -> ArFrame:
         """Return a new ArFrame with only the selected columns.

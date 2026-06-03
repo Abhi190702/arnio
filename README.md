@@ -402,6 +402,10 @@ frame = ar.read_jsonl("events.jsonl")
 # Limit rows
 frame = ar.read_jsonl("large.jsonl", nrows=1000)
 
+# Stream large JSONL/NDJSON files in bounded chunks
+for chunk in ar.read_jsonl_chunked("large.jsonl", chunksize=50_000):
+    process(chunk)
+
 # Non-UTF-8 encoding
 frame = ar.read_jsonl("data.ndjson", encoding="latin-1")
 
@@ -409,7 +413,7 @@ frame = ar.read_jsonl("data.ndjson", encoding="latin-1")
 clean = ar.pipeline(frame, [("strip_whitespace",), ("drop_nulls",)])
 ```
 
-Raises `ar.JsonlReadError` with the 1-based line number if a line contains invalid JSON.
+Raises `ar.JsonlReadError` with the 1-based line number if a line contains invalid JSON. The chunked reader uses the same validation and decoding rules as `read_jsonl`, but only materializes one chunk at a time.
 </details>
 
 <details>
@@ -1828,8 +1832,8 @@ Most new features are pure Python pipeline steps:
 
 ```python
 # 1. Write a function that takes a DataFrame and returns a DataFrame
-def remove_special_chars(df, columns=None):
-    cols = columns or df.select_dtypes("object").columns
+def remove_special_chars(df, subset=None):
+    cols = subset or df.select_dtypes("object").columns
     for col in cols:
         df[col] = df[col].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True)
     return df
