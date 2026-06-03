@@ -426,6 +426,7 @@ def from_pandas(df: pd.DataFrame) -> ArFrame:
             dtype_hints[name] = dtype_hint
 
     cpp_frame = _Frame.from_dict(columns, dtype_hints, len(df))
+    
     attrs = copylib.deepcopy(df.attrs)
 
     # Store index ONLY if it's not default RangeIndex
