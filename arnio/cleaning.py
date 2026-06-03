@@ -1839,7 +1839,12 @@ def filter_rows(
 
     try:
         mask = getattr(df[column], ops[op])(value)
-    except (TypeError, ValueError) as exc:
+    except TypeError as exc:
+        raise TypeError(
+            f"filter_rows: cannot compare column {column!r} with value "
+            f"{value!r} using operator {op!r}: {exc}"
+        ) from exc
+    except ValueError as exc:
         raise TypeCastError(
             f"filter_rows: cannot compare column {column!r} with value "
             f"{value!r} using operator {op!r}: {exc}"
