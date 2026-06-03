@@ -351,7 +351,7 @@ class TestOnBadLinesQuotedDelimiters:
 
     def test_empty_quoted_field_not_classified_bad(self, tmp_path):
         csv_path = tmp_path / "empty_quoted.csv"
-        csv_path.write_text("a,b,c\n" '"",2,3\n' "4,5\n" "6,7,8\n")
+        csv_path.write_text('a,b,c\n"",2,3\n4,5\n6,7,8\n')
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -462,7 +462,7 @@ class TestOnBadLinesUsecols:
 
     def test_usecols_with_chunked_warn(self, tmp_path):
         csv_path = tmp_path / "usecols_chunked.csv"
-        csv_path.write_text("a,b,c,d\n" "1,2,3,4\n" "5,6,7\n" "8,9,10,11\n")
+        csv_path.write_text("a,b,c,d\n1,2,3,4\n5,6,7\n8,9,10,11\n")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             frames = list(
