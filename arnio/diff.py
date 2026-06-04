@@ -166,6 +166,7 @@ def _infer_dtype(series: pd.Series) -> str:
         "bool": "bool",
         "object": "string",
         "string": "string",
+        "str": "string",
     }
     if dtype_str.startswith("datetime"):
         return "datetime"
