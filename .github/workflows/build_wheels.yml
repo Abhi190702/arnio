@@ -1,5 +1,14 @@
 name: Build & Publish Wheels
 
+# This workflow builds distributions AND publishes them to PyPI. To prevent
+# publishing untagged or arbitrary commits, every entrypoint must supply an
+# explicit release tag that matches the project's vX.Y.Z convention:
+#   * release-please calls this workflow (workflow_call) with the tag it created.
+#   * A maintainer running it manually (workflow_dispatch) must enter that tag.
+# The `validate_tag` job rejects anything else before any build runs, and the
+# `publish` job is additionally guarded so it only runs for a validated tag.
+# For build-only verification without publishing, use release-dry-run.yml.
+
 permissions:
   contents: read
 
@@ -7,23 +16,47 @@ on:
   workflow_call:
     inputs:
       tag_name:
+        description: "Release tag to build and publish (must match vX.Y.Z)"
         required: true
         type: string
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Git tag or ref to build and publish"
-        required: false
+        description: "Release tag to build and publish, e.g. v1.2.3 (must match vX.Y.Z)"
+        required: true
         type: string
 
 jobs:
+  validate_tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.check.outputs.tag_name }}
+    steps:
+      - name: Validate tag_name
+        id: check
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          if [ -z "${TAG_NAME}" ]; then
+            echo "::error::No release tag provided. This is a publish workflow and requires an explicit tag_name (e.g. v1.2.3)."
+            exit 1
+          fi
+          if ! printf '%s' "${TAG_NAME}" | grep -E -q '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Invalid release tag '${TAG_NAME}'. Expected the vX.Y.Z convention (e.g. v1.2.3 or v1.2.3-rc1)."
+            exit 1
+          fi
+          echo "Release tag '${TAG_NAME}' is valid."
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
   build_sdist:
     name: Build source distribution
+    needs: validate_tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag_name || github.ref }}
+          ref: ${{ needs.validate_tag.outputs.tag_name }}
       - name: Build sdist
         run: pipx run build --sdist
       - name: Verify sdist safety
@@ -64,6 +97,7 @@ jobs:
 
   build_wheels:
     name: Build wheels (${{ matrix.os }})
+    needs: validate_tag
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -73,7 +107,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag_name || github.ref }}
+          ref: ${{ needs.validate_tag.outputs.tag_name }}
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.2
@@ -99,7 +133,10 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [build_wheels, build_sdist]
+    needs: [validate_tag, build_wheels, build_sdist]
+    # Defence in depth: even though validate_tag fails the pipeline for a bad
+    # tag, only publish when a validated vX.Y.Z tag is present.
+    if: needs.validate_tag.outputs.tag_name != '' && startsWith(needs.validate_tag.outputs.tag_name, 'v')
     runs-on: ubuntu-latest
     environment: pypi  # requires a "pypi" environment configured in repo settings
     permissions:
