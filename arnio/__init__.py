@@ -13,6 +13,7 @@ from .cleaning import (
     clean_column_names,
     clip_numeric,
     coalesce_columns,
+    collapse_rare_categories,
     combine_columns,
     drop_columns,
     drop_columns_matching,
@@ -158,7 +159,9 @@ __all__ = [
     "clean_column_names",
     "clip_numeric",
     "winsorize_outliers",
+
     "normalize_minmax",
+    "collapse_rare_categories",
     "coalesce_columns",
     "combine_columns",
     "rename_columns_matching",

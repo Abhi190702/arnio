@@ -464,6 +464,7 @@ PYBIND11_MODULE(_arnio_cpp, m) {
         py::arg("frame"), py::arg("numerator"), py::arg("denominator"), py::arg("output_column"),
         py::arg("fill_value") = 0.0);
 
+
     // ── encode_categorical bindings ──────────────────────────────────────────────
     // Add this #include at the top of bind_arnio.cpp with the other headers:
     //   #include "arnio/encode_categorical.h"
@@ -496,4 +497,13 @@ PYBIND11_MODULE(_arnio_cpp, m) {
             return result;
         },
         py::arg("frame"), py::arg("column_names"), py::arg("ordinal_mappings"));
+    m.def(
+        "collapse_rare_categories",
+        [](const Frame& frame, const std::string& column, double threshold,
+           const std::string& fill_value) -> Frame {
+            py::gil_scoped_release release;
+            return collapse_rare_categories(frame, column, threshold, fill_value);
+        },
+        py::arg("frame"), py::arg("column"), py::arg("threshold") = 0.02,
+        py::arg("fill_value") = std::string("Other"));
 }
