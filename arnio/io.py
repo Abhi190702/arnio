@@ -1145,8 +1145,8 @@ def read_csv_chunked(
         if should_cleanup and os.path.exists(native_path):
             os.unlink(native_path)
         raise
-        
-        try:
+
+    try:
         effective_encoding = "utf-8" if is_materialized_text else encoding
         with _utf8_csv_path(
             native_path, effective_encoding, delimiter=delimiter
@@ -1157,13 +1157,16 @@ def read_csv_chunked(
             total_yielded_rows = 0
 
             yielded_nonempty_chunk = False
-        try:
+
+            try:
                 while True:
                     chunk = reader.next_chunk(chunksize, on_bad_lines)
                     if chunk is None:
                         if progress_hook is not None:
                             # Use our manual count if C++ never fired (small files)
-                            final_rows = last_rows if last_rows > 0 else total_yielded_rows
+                            final_rows = (
+                                last_rows if last_rows > 0 else total_yielded_rows
+                            )
                             final_box = CSVProgress(
                                 rows_read=final_rows,
                                 bytes_read=last_bytes,
@@ -1186,8 +1189,26 @@ def read_csv_chunked(
 
                     yielded_nonempty_chunk = (
                         yielded_nonempty_chunk or frame.shape[0] > 0
-                    ) 
-            
+                    )
+
+                    yield frame
+            finally:
+                reader.close()
+
+    except (ValueError, TypeError):
+        raise
+    except CsvReadError:
+        raise
+    except Exception as e:
+        raise CsvReadError(str(e)) from None
+    finally:
+        if should_cleanup and os.path.exists(native_path):
+            try:
+                os.unlink(native_path)
+            except OSError:
+                pass
+
+
 def write_csv(
     frame: ArFrame,
     path: str | os.PathLike[str],
