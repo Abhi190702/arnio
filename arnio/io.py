@@ -987,7 +987,9 @@ def read_csv_chunked(
     >>> for chunk in ar.read_csv_chunked("data.tsv", delimiter=",", chunksize=10_000):
     ...     process(chunk)
     """
-    path, should_cleanup, is_materialized_text = _materialize_csv_input(path)
+    path, should_cleanup, is_materialized_text = _materialize_csv_input(
+        path, caller="read_csv_chunked"
+    )
     try:
         path_lower = path.lower()
         _validate_csv_path(path, encoding, reject_utf8_nul_bytes=False)
