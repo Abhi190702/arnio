@@ -261,15 +261,6 @@ body.page-exit {
 }
 
 /* Accessibility */
-@media (prefers-reduced-motion: reduce) {
-  body.page-enter,
-  body.page-exit {
-    animation: none !important;
-    transition: none !important;
-  }
-}
-
-/* Accessibility */
 
 @media (prefers-reduced-motion: reduce) {
   *,
