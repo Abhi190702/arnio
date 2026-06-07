@@ -2,6 +2,12 @@ const searchInput = document.getElementById("docs-search");
 const resultsBox = document.getElementById("search-results");
 
 if (searchInput && resultsBox) {
+  searchInput.setAttribute("aria-controls", "search-results");
+  searchInput.setAttribute("aria-expanded", "false");
+  searchInput.setAttribute("aria-autocomplete", "list");
+  resultsBox.setAttribute("role", "listbox");
+  resultsBox.id = "search-results";
+
   const searchIndex = [
     { title: "Installation", page: "docs.html#install" },
     { title: "Quickstart", page: "docs.html#quickstart" },
@@ -24,7 +30,7 @@ if (searchInput && resultsBox) {
     { title: "profile", page: "api.html#quality" },
     { title: "DateTime", page: "api.html#schema" },
     { title: "Email", page: "api.html#schema" },
-    { title: "Exceptions", page: "api.html#exceptions" }
+    { title: "Exceptions", page: "api.html#exceptions" },
   ];
 
   let selectedIndex = -1;
@@ -44,36 +50,37 @@ if (searchInput && resultsBox) {
     resultsBox.innerHTML = "";
 
     if (!items.length) {
-      closeResults();
+      resultsBox.classList.remove("show");
+      searchInput.setAttribute("aria-expanded", "false");
       return;
     }
 
     items.forEach((item) => {
-      const div = document.createElement("div");
-      div.className = "search-result";
-      div.textContent = item.title;
+      const link = document.createElement("a");
+      link.className = "search-result";
+      link.href = item.page;
+      link.textContent = item.title;
+      link.setAttribute("role", "option");
+      link.setAttribute("aria-selected", "false");
 
-      div.addEventListener("click", () => {
-        closeResults();
-        window.location.href = item.page;
-      });
-
-      resultsBox.appendChild(div);
+      resultsBox.appendChild(link);
     });
 
     resultsBox.classList.add("show");
+    searchInput.setAttribute("aria-expanded", "true");
   }
 
   searchInput.addEventListener("input", (e) => {
     const q = e.target.value.toLowerCase();
 
     if (!q) {
-      closeResults();
+      resultsBox.classList.remove("show");
+      searchInput.setAttribute("aria-expanded", "false");
       return;
     }
 
     const matches = searchIndex.filter((item) =>
-      item.title.toLowerCase().includes(q)
+      item.title.toLowerCase().includes(q),
     );
 
     selectedIndex = -1;
@@ -86,9 +93,14 @@ if (searchInput && resultsBox) {
       searchInput.focus();
     }
 
-    const results = [
-      ...resultsBox.querySelectorAll(".search-result")
-    ];
+    if (
+      document.activeElement !== searchInput &&
+      !resultsBox.contains(document.activeElement)
+    ) {
+      return;
+    }
+
+    const results = [...document.querySelectorAll(".search-result")];
 
     if (!resultsBox.classList.contains("show") || !results.length) {
       return;
@@ -101,25 +113,33 @@ if (searchInput && resultsBox) {
 
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      selectedIndex =
-        (selectedIndex - 1 + results.length) % results.length;
+      selectedIndex = (selectedIndex - 1 + results.length) % results.length;
     }
 
-    results.forEach((result) => {
-      result.classList.remove("active");
+    results.forEach((r) => {
+      r.classList.remove("active");
+      r.setAttribute("aria-selected", "false");
     });
 
     if (selectedIndex >= 0) {
       results[selectedIndex].classList.add("active");
+      results[selectedIndex].focus();
+      results[selectedIndex].setAttribute("aria-selected", "true");
     }
 
     if (e.key === "Enter" && selectedIndex >= 0) {
-      e.preventDefault();
-      results[selectedIndex].click();
+      window.location.href = results[selectedIndex].getAttribute("href");
     }
 
     if (e.key === "Escape") {
-      closeResults();
+      selectedIndex = -1;
+      results.forEach((r) => {
+        r.classList.remove("active");
+        r.setAttribute("aria-selected", "false");
+      });
+      resultsBox.classList.remove("show");
+      searchInput.setAttribute("aria-expanded", "false");
+      searchInput.focus();
     }
   });
 }
