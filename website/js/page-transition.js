@@ -19,6 +19,26 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
+      // Skip non-page-navigation links
+      if (
+        href.startsWith("mailto:") ||
+        href.startsWith("tel:") ||
+        href.startsWith("javascript:") ||
+        link.hasAttribute("download")
+      ) {
+        return;
+      }
+
+      // Skip external links
+      try {
+        const url = new URL(href, window.location.origin);
+        if (url.origin !== window.location.origin) {
+          return;
+        }
+      } catch (e) {
+        return;
+      }
+
       // Preserve new-tab / modifier behavior
       if (
         event.metaKey ||
