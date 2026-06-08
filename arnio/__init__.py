@@ -179,6 +179,7 @@ __all__ = [
     "trim_column_names",
     "standardize_missing_tokens",
     "rolling_window",
+    "CleaningSuggestion",
     # Conversion
     "to_pandas",
     "to_arrow",
