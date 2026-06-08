@@ -25,14 +25,7 @@ from .cleaning import (
     validate_columns_exist,
 )
 from .convert import to_pandas
-from .frame import ArFrame
-
-
-def _validate_arframe(frame):
-    from .frame import ArFrame
-
-    if not isinstance(frame, ArFrame):
-        raise TypeError("Input must be an ArFrame instance")
+from .frame import ArFrame, _validate_arframe
 
 
 class CleaningSuggestion(tuple):
