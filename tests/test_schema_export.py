@@ -294,6 +294,18 @@ def test_set_valued_allowed_normalized():
     assert result["fields"]["status"]["allowed"] == ["a", "b", "c"]
 
 
+def test_mixed_scalar_set_valued_allowed_normalized():
+    raw = {"code": {"type": "STRING", "allowed": {1, "1"}}}
+    result = schema_to_dict(raw)
+    assert result["fields"]["code"]["allowed"] == [1, "1"]
+
+
+def test_none_and_string_set_valued_allowed_normalized():
+    raw = {"status": {"type": "STRING", "allowed": {None, "missing"}}}
+    result = schema_to_dict(raw)
+    assert result["fields"]["status"]["allowed"] == [None, "missing"]
+
+
 def test_real_schema_field_dtype():
     schema = ar.Schema({"price": ar.Field(dtype="float64", nullable=False)})
     result = schema_to_dict(schema)
@@ -698,7 +710,7 @@ class TestSchemaFromYaml:
         """A YAML payload with rules_omitted: true must emit a UserWarning."""
         import arnio as ar
 
-        yaml_text = "fields:\n" "  x:\n" "    dtype: string\n" "rules_omitted: true\n"
+        yaml_text = "fields:\n  x:\n    dtype: string\nrules_omitted: true\n"
         with pytest.warns(UserWarning, match="rules_omitted"):
             schema = ar.schema_from_yaml(yaml_text)
 
