@@ -34,9 +34,10 @@ except ImportError as e:
 try:
     from ._arnio_cpp import (
         encode_one_hot_native as _encode_one_hot_native,
+    )
+    from ._arnio_cpp import (
         encode_ordinal_native as _encode_ordinal_native,
     )
 except ImportError:
     _encode_one_hot_native = None
     _encode_ordinal_native = None
-
