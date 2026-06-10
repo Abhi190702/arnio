@@ -22,6 +22,8 @@ try:
         rename_columns as _rename_columns,
         safe_divide_columns as _safe_divide_columns,
         strip_whitespace as _strip_whitespace,
+        encode_one_hot_native as _encode_one_hot_native,
+        encode_ordinal_native as _encode_ordinal_native,
     )
 except ImportError as e:
     raise ImportError(
@@ -30,8 +32,3 @@ except ImportError as e:
         "Windows: Install 'Desktop development with C++' in Visual Studio Build Tools, or use WSL.\n"
         "Linux/macOS: Ensure gcc or clang is installed."
     ) from e
-
-from ._arnio_cpp import (
-    encode_one_hot_native as _encode_one_hot_native,
-    encode_ordinal_native as _encode_ordinal_native,
-)
