@@ -648,11 +648,9 @@ class TestWriteCsvEncoding:
         assert after - before == {str(out)}
 
 def test_write_csv_append(tmp_path):
-    import arnio as ar
-    import pytest
     path = str(tmp_path / 'test_append.csv')
-    frame1 = ar.ArFrame({'A': [1, 2], 'B': ['x', 'y']})
-    frame2 = ar.ArFrame({'A': [3, 4], 'B': ['z', 'w']})
+    frame1 = ar.from_pandas(pd.DataFrame({'A': [1, 2], 'B': ['x', 'y']}))
+    frame2 = ar.from_pandas(pd.DataFrame({'A': [3, 4], 'B': ['z', 'w']}))
 
     # Append to empty
     ar.write_csv(frame1, path, append=True)
@@ -666,6 +664,6 @@ def test_write_csv_append(tmp_path):
     assert res2.column('A').to_list() == [1, 2, 3, 4]
 
     # Schema mismatch
-    frame3 = ar.ArFrame({'A': [5], 'C': ['diff']})
+    frame3 = ar.from_pandas(pd.DataFrame({'A': [5], 'C': ['diff']}))
     with pytest.raises(ValueError, match='Schema mismatch'):
         ar.write_csv(frame3, path, append=True)
