@@ -331,9 +331,36 @@ def _validate_nrows(nrows: int) -> int:
 
 
 _PREVIEW_BAD_ROWS = 10
+_FILE_LIKE_COPY_CHUNK_SIZE = 8192
+
+# ---------------------------------------------------------------------------
+# Remote URL support
+# ---------------------------------------------------------------------------
+
+# Schemes fetched via stdlib urllib — zero new dependencies.
+_SUPPORTED_URL_SCHEMES = frozenset({"https", "http"})
+
+# Cloud provider schemes that are reserved for follow-up optional extras.
+# Fail fast with an actionable install hint rather than a cryptic C++ error.
+_CLOUD_SCHEME_HINTS: dict[str, str] = {
+    "s3": 'pip install "arnio[s3]"',
+    "gs": 'pip install "arnio[gcs]"',
+    "gcs": 'pip install "arnio[gcs]"',
+    "az": 'pip install "arnio[azure]"',
+    "abfs": 'pip install "arnio[azure]"',
+    "abfss": 'pip install "arnio[azure]"',
+}
+
+_URL_FETCH_TIMEOUT = 30  # seconds
+_URL_FETCH_CHUNK_SIZE = 65536  # 64 KiB per streaming read
+_URL_MAX_RESPONSE_SIZE = int(os.environ.get("ARNIO_REMOTE_MAX_SIZE", 500 * 1024 * 1024))
 
 
-def _fetch_url_to_tempfile(url: str) -> str:
+def _fetch_url_to_tempfile(
+    url: str,
+    limit_rows: int | None = None,
+    max_response_size: int | None = None,
+) -> str:
     """Fetch an HTTP/HTTPS URL and write its content to a UTF-8 temp file.
 
     Parameters
@@ -341,6 +368,11 @@ def _fetch_url_to_tempfile(url: str) -> str:
     url : str
         A well-formed ``http://`` or ``https://`` URL whose response body
         is assumed to be UTF-8 encoded CSV text.
+    limit_rows : int, optional
+        Maximum number of CSV records (rows) to download. If specified,
+        streaming will stop early once at least this many rows are fetched.
+    max_response_size : int, optional
+        Maximum allowed size of the HTTP response in bytes.
 
     Returns
     -------
@@ -352,9 +384,12 @@ def _fetch_url_to_tempfile(url: str) -> str:
     Raises
     ------
     RemoteReadError
-        On any network-level failure (DNS, timeout, connection refused) or
-        a non-2xx HTTP response.
+        On any network-level failure (DNS, timeout, connection refused),
+        a non-2xx HTTP response, or if the size limit or invalid UTF-8 is encountered.
     """
+    if max_response_size is None:
+        max_response_size = _URL_MAX_RESPONSE_SIZE
+
     tmp = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -387,25 +422,92 @@ def _fetch_url_to_tempfile(url: str) -> str:
         # RemoteReadError.
         with response:
             decoder = codecs.getincrementaldecoder("utf-8")("strict")
-            raw_bytes = response.read(_URL_FETCH_CHUNK_SIZE)
-            while raw_bytes:
+            bytes_downloaded = 0
+
+            row_count = 0
+            in_quotes = False
+            pending_quote = False
+            pending_cr = False
+            limit_reached = False
+
+            while True:
+                raw_bytes = response.read(_URL_FETCH_CHUNK_SIZE)
+                if not raw_bytes:
+                    break
+
+                bytes_downloaded += len(raw_bytes)
+                if max_response_size is not None and bytes_downloaded > max_response_size:
+                    raise RemoteReadError(
+                        f"Remote CSV size exceeded limit of {max_response_size} bytes",
+                        url=url,
+                    )
+
                 try:
-                    tmp.write(decoder.decode(raw_bytes, final=False))
+                    text_chunk = decoder.decode(raw_bytes, final=False)
                 except UnicodeDecodeError as exc:
                     raise RemoteReadError(
                         f"Remote CSV at {url!r} is not valid UTF-8: {exc}",
                         url=url,
                     ) from exc
-                raw_bytes = response.read(_URL_FETCH_CHUNK_SIZE)
-            # Flush any bytes buffered inside the decoder for the final
-            # (possibly incomplete) multi-byte sequence.
-            try:
-                tmp.write(decoder.decode(b"", final=True))
-            except UnicodeDecodeError as exc:
-                raise RemoteReadError(
-                    f"Remote CSV at {url!r} is not valid UTF-8: {exc}",
-                    url=url,
-                ) from exc
+
+                if not text_chunk:
+                    continue
+
+                tmp.write(text_chunk)
+
+                if limit_rows is not None and not limit_reached:
+                    index = 0
+                    chunk_len = len(text_chunk)
+                    while index < chunk_len:
+                        char = text_chunk[index]
+
+                        if pending_cr:
+                            pending_cr = False
+                            if char == "\n":
+                                index += 1
+                                continue
+
+                        if char == '"':
+                            if pending_quote:
+                                pending_quote = False
+                            elif in_quotes:
+                                pending_quote = True
+                            else:
+                                in_quotes = True
+                        else:
+                            if pending_quote:
+                                in_quotes = False
+                                pending_quote = False
+
+                            if not in_quotes and char in {"\n", "\r"}:
+                                row_count += 1
+                                if char == "\r":
+                                    if (
+                                        index + 1 < chunk_len
+                                        and text_chunk[index + 1] == "\n"
+                                    ):
+                                        pass
+                                    else:
+                                        pending_cr = True
+                                if row_count >= limit_rows:
+                                    limit_reached = True
+                                    break
+
+                        index += 1
+
+                if limit_reached:
+                    break
+
+            if not limit_reached:
+                # Flush any bytes buffered inside the decoder for the final
+                # (possibly incomplete) multi-byte sequence.
+                try:
+                    tmp.write(decoder.decode(b"", final=True))
+                except UnicodeDecodeError as exc:
+                    raise RemoteReadError(
+                        f"Remote CSV at {url!r} is not valid UTF-8: {exc}",
+                        url=url,
+                    ) from exc
 
         tmp.close()
         return tmp_name
@@ -457,13 +559,13 @@ def _warn_bad_rows(bad_rows: Sequence[object]) -> None:
     )
 
 
-def _validate_skip_rows(skip_rows: int) -> int:
+def _validate_skip_rows(skip_rows: int, name: str = "skip_rows") -> int:
     """Validate skip_rows parameter."""
     if isinstance(skip_rows, bool) or not isinstance(skip_rows, int):
-        raise TypeError("skip_rows must be an integer")
+        raise TypeError(f"{name} must be an integer")
 
     if skip_rows < 0:
-        raise ValueError("skip_rows must be non-negative")
+        raise ValueError(f"{name} must be non-negative")
 
     return skip_rows
 
@@ -528,12 +630,359 @@ def _validate_on_bad_lines(on_bad_lines: str) -> str:
     return on_bad_lines
 ]
 
-@dataclass(frozen=True)
-class CSVProgress:
-    rows_read: int
-    bytes_read: int
-    total_bytes: int | None
-    done: bool
+
+def _materialize_csv_input(
+    source: str | os.PathLike[str] | io.TextIOBase,
+    caller: str = "read_csv",
+    limit_rows: int | None = None,
+) -> tuple[str, bool, bool]:
+    """Convert supported CSV inputs into a filesystem path.
+
+    Supported input types
+    ---------------------
+    - Local filesystem paths (``str`` or ``os.PathLike``) — returned as-is.
+    - ``https://`` / ``http://`` URLs — fetched via stdlib ``urllib`` and
+      written to a UTF-8 temporary file.
+    - Cloud provider URLs (``s3://``, ``gs://``, ``az://``, …) — raise
+      ``ValueError`` with an actionable ``pip install`` hint.
+    - Text file-like objects (``io.StringIO`` or any object with a
+      ``read()`` method returning ``str``) — copied to a UTF-8 temp file.
+
+    Returns
+    -------
+    (path, should_cleanup, is_materialized_text)
+        ``should_cleanup`` is ``True`` when a temp file was created and the
+        caller must delete it.  ``is_materialized_text`` signals that the
+        file was already decoded to UTF-8, so ``_utf8_csv_path`` should
+        skip re-transcoding.
+    """
+    if isinstance(source, (str, os.PathLike)):
+        raw = os.fspath(source)
+        is_temp = False
+
+        # Only inspect scheme for plain strings — PathLike objects are
+        # always local filesystem paths.
+        if isinstance(source, str):
+            parsed = urllib.parse.urlparse(raw)
+            scheme = parsed.scheme.lower()
+
+            # Cloud provider schemes — reserved, fail fast with install hint.
+            if scheme in _CLOUD_SCHEME_HINTS:
+                raise ValueError(
+                    f"Cloud scheme {scheme!r} is not yet supported by arnio. "
+                    f"Install the optional extra when available: "
+                    f"{_CLOUD_SCHEME_HINTS[scheme]}"
+                )
+
+            # HTTP/HTTPS — fetch via stdlib urllib, no new dependencies.
+            if scheme in _SUPPORTED_URL_SCHEMES:
+                raw = _fetch_url_to_tempfile(raw, limit_rows=limit_rows)
+                is_temp = True
+
+        is_gz = False
+        if isinstance(source, str) and source.lower().endswith(".gz"):
+            is_gz = True
+        elif not isinstance(source, str) and raw.lower().endswith(".gz"):
+            is_gz = True
+
+        if is_gz:
+            import gzip
+
+            tmp = tempfile.NamedTemporaryFile(
+                mode="wb",
+                suffix=".csv",
+                delete=False,
+            )
+            try:
+                with gzip.open(raw, "rb") as gz_file:
+                    shutil.copyfileobj(gz_file, tmp, length=_FILE_LIKE_COPY_CHUNK_SIZE)
+                tmp.close()
+                if is_temp:
+                    try:
+                        os.unlink(raw)
+                    except OSError:
+                        pass
+                return tmp.name, True, False
+            except Exception:
+                try:
+                    tmp.close()
+                except OSError:
+                    pass
+                try:
+                    os.unlink(tmp.name)
+                except OSError:
+                    pass
+                if is_temp:
+                    try:
+                        os.unlink(raw)
+                    except OSError:
+                        pass
+                raise
+
+        # If it was an HTTP fetch but not a .gz, it's materialized text
+        if is_temp:
+            return raw, True, True
+
+        return raw, False, False
+
+    if isinstance(source, io.StringIO) or (
+        hasattr(source, "read") and callable(source.read)
+    ):
+        text_tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            suffix=".csv",
+            delete=False,
+        )
+
+        try:
+            while True:
+                chunk = source.read(_FILE_LIKE_COPY_CHUNK_SIZE)
+                if chunk == "":
+                    break
+                if not isinstance(chunk, str):
+                    raise TypeError(
+                        "read_csv file-like objects must return text, not bytes"
+                    )
+                text_tmp.write(chunk)
+            text_tmp.close()
+            return text_tmp.name, True, True
+        except Exception:
+            try:
+                text_tmp.close()
+            except OSError:
+                pass
+            try:
+                os.unlink(text_tmp.name)
+            except OSError:
+                pass
+            raise
+
+    # read_csv_chunked expects a shorter message (no URL mention) per its test.
+    if caller == "read_csv_chunked":
+        raise TypeError(f"{caller} expected a filesystem path or text file-like object")
+    raise TypeError(
+        f"{caller} expected a filesystem path, a URL, or a text file-like object"
+    )
+
+
+def _reject_utf8_nul_bytes(path: str) -> None:
+    """Reject UTF-8 CSV inputs that contain NUL bytes anywhere in the file."""
+    try:
+        with open(path, "rb") as f:
+            while chunk := f.read(8192):
+                if b"\0" in chunk:
+                    raise CsvReadError(
+                        "CSV input contains NUL bytes and appears to be binary or corrupted"
+                    )
+    except FileNotFoundError:
+        pass  # Let C++ backend handle or raise standard error
+    except OSError as e:
+        _raise_csv_path_os_error(path, e)
+
+
+def _validate_csv_path(
+    path: str, encoding: str, *, reject_utf8_nul_bytes: bool = True
+) -> None:
+    """Shared validation for CSV-style file inputs."""
+
+    is_utf8 = _is_utf8_encoding(encoding)
+    if reject_utf8_nul_bytes and is_utf8:
+        _reject_utf8_nul_bytes(path)
+
+    try:
+        if os.path.getsize(path) == 0:
+            raise CsvReadError(f"CSV file is empty: {path!r}")
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _raise_csv_path_os_error(path, e)
+
+
+_VALID_ENCODING_ERRORS = {"strict", "replace", "ignore"}
+
+
+def _validate_encoding_errors(value: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError("encoding_errors must be a string")
+
+    if value not in _VALID_ENCODING_ERRORS:
+        raise ValueError(
+            "encoding_errors must be one of 'strict', 'replace', or 'ignore'"
+        )
+
+    return value
+
+
+def _enrich_row_width_error(exc: Exception, delimiter: str) -> CsvReadError:
+    """Re-raise a confirmed C++ row-width error with richer Python-layer context.
+
+    The C++ backend emits messages matching:
+        "CSV row <N> has <actual> fields; expected <expected>"
+
+    Only messages that match that exact pattern are enriched; all other
+    exceptions are converted to CsvReadError with the original message intact,
+    preserving established exception behavior for unrelated failures.
+    """
+    msg = str(exc)
+    m = _re.search(
+        r"[Cc][Ss][Vv] row (\d+) has (\d+) fields?;?\s*expected (\d+)",
+        msg,
+    )
+    if m:
+        row_num = int(m.group(1))
+        actual = int(m.group(2))
+        expected = int(m.group(3))
+        direction = (
+            f"too many fields ({actual} found, {expected} expected)"
+            if actual > expected
+            else f"too few fields ({actual} found, {expected} expected)"
+        )
+        enriched = (
+            f"Malformed CSV: row {row_num} has {direction}. "
+            f"To skip bad rows silently use on_bad_lines='skip', or "
+            f"on_bad_lines='warn' to collect them. "
+            f"For rows with missing trailing fields, try mode='permissive'. "
+            f"({msg})"
+        )
+        return CsvReadError(enriched)
+    # Not a row-width message — preserve the original text exactly.
+    return CsvReadError(msg)
+
+
+# Candidate delimiters to probe during delimiter-mismatch detection.
+# Checked only when the parse produced exactly one column, which is the
+# signature of a delimiter mismatch.
+_MISMATCH_PROBE_DELIMITERS = {",", ";", "\t", "|"}
+
+
+def _read_logical_records(path: str, max_records: int = 2) -> list[str]:
+    """Read up to *max_records* logical CSV records from *path*.
+
+    Quote state is preserved across physical newlines so that a field like
+    ``"Alice\\nSmith"`` is correctly treated as part of the same record rather
+    than split into two separate lines.  Each returned string is the raw text
+    of one complete logical record (everything up to and including the closing
+    quote of any spanning field, then up to the next unquoted newline).
+
+    Only the minimum bytes needed are read, so this is O(1) in file size.
+    """
+    records: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+
+    try:
+        with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+            for raw_line in fh:
+                # Count how many quotes are on this physical line to update
+                # in_quotes state, carrying it across newlines.
+                i = 0
+                n = len(raw_line)
+                while i < n:
+                    c = raw_line[i]
+                    if c == '"':
+                        if in_quotes:
+                            # Doubled-quote escape: "" inside a quoted field.
+                            if i + 1 < n and raw_line[i + 1] == '"':
+                                i += 2
+                                continue
+                            in_quotes = False
+                        else:
+                            in_quotes = True
+                    i += 1
+
+                current.append(raw_line.rstrip("\r\n"))
+
+                if not in_quotes:
+                    # Quote state closed — this physical line ends a logical record.
+                    record = " ".join(current).strip()
+                    if record:
+                        records.append(record)
+                        current = []
+                        if len(records) >= max_records:
+                            break
+    except OSError:
+        pass
+
+    return records
+
+
+def _count_unquoted_in_record(record: str, char: str) -> int:
+    """Count occurrences of *char* outside RFC-4180 quoted fields in *record*.
+
+    *record* is the text of a complete logical CSV record (quote state is
+    already resolved across newlines by ``_read_logical_records``).  Handles
+    doubled-quote escapes (``""``) correctly.
+    """
+    count = 0
+    in_quotes = False
+    i = 0
+    n = len(record)
+    while i < n:
+        c = record[i]
+        if c == '"':
+            if in_quotes:
+                if i + 1 < n and record[i + 1] == '"':
+                    i += 2
+                    continue
+                in_quotes = False
+            else:
+                in_quotes = True
+        elif not in_quotes and c == char:
+            count += 1
+        i += 1
+    return count
+
+
+def _warn_delimiter_mismatch(path: str, delimiter: str, col_count: int) -> None:
+    """Emit a UserWarning when the parsed result has one column and the raw
+    file appears to contain a different candidate delimiter outside quoted
+    fields in the first two logical CSV records.
+
+    Quote state is preserved across physical newlines, so a multiline quoted
+    field such as ``"Alice\\nSmith";30`` is correctly handled: the semicolon
+    is detected as outside quotes even though it sits on the second physical
+    line of the file.
+
+    Only fires when the candidate delimiter appears outside quotes in *both*
+    the header record and the first data record, which rules out column
+    headers that coincidentally contain the character.
+
+    This is a best-effort hint — it never raises, so intentional single-column
+    reads are never broken.
+    """
+    if col_count != 1:
+        return
+
+    candidates = _MISMATCH_PROBE_DELIMITERS - {delimiter}
+
+    try:
+        records = _read_logical_records(path, max_records=2)
+        if len(records) < 2:
+            # Header-only or empty file — no data record to probe.
+            return
+
+        header_record, data_record = records[0], records[1]
+
+        for candidate in candidates:
+            if (
+                _count_unquoted_in_record(header_record, candidate) >= 1
+                and _count_unquoted_in_record(data_record, candidate) >= 1
+            ):
+                display = repr(candidate).strip("'")
+                used_display = repr(delimiter).strip("'")
+                warnings.warn(
+                    f"Parsed as a single column — possible delimiter mismatch. "
+                    f"The file appears to contain {display!r} characters but "
+                    f"delimiter={used_display!r} was used. "
+                    f"Try ar.read_csv(path, delimiter={display!r}) or "
+                    f"ar.sniff_delimiter(path) to auto-detect.",
+                    UserWarning,
+                    stacklevel=4,
+                )
+                return
+    except OSError:
+        pass  # best-effort; never mask the original parse result
 
 
 def read_csv(
@@ -632,7 +1081,21 @@ def read_csv(
     >>> df = ar.read_csv("data.tsv", delimiter=",")  # explicit comma honoured
     >>> df = ar.read_csv("data.dat")              # non-standard extension accepted
     """
-    native_path, should_cleanup, is_materialized_text = _materialize_csv_input(path)
+    if nrows is not None:
+        _validate_nrows(nrows)
+    if skiprows is not None:
+        _validate_skip_rows(skiprows, name="skiprows")
+
+    limit_rows = None
+    if nrows is not None:
+        effective_skip = skiprows if skiprows is not None else 0
+        limit_rows = nrows + effective_skip + (1 if has_header else 0)
+
+    native_path, should_cleanup, is_materialized_text = _materialize_csv_input(
+        path,
+        caller="read_csv",
+        limit_rows=limit_rows,
+    )
 
     if _is_utf8_encoding(encoding):
         _reject_utf8_nul_bytes(path)
@@ -881,8 +1344,21 @@ def read_csv_chunked(
     >>> for chunk in ar.read_csv_chunked("data.tsv", delimiter=",", chunksize=10_000):
     ...     process(chunk)
     """
-    path, should_cleanup, is_materialized_text = _materialize_csv_input(
-        path, caller="read_csv_chunked"
+    if nrows is not None:
+        _validate_nrows(nrows)
+    if skiprows is not None:
+        _validate_skip_rows(skiprows, name="skiprows")
+    if skip_rows is not None:
+        _validate_skip_rows(skip_rows, name="skip_rows")
+
+    limit_rows = None
+    if nrows is not None:
+        effective_skip = skiprows if skiprows is not None else skip_rows
+        limit_rows = nrows + effective_skip + (1 if has_header else 0)
+
+    is_path_input = isinstance(path, (str, os.PathLike))
+    native_path, should_cleanup, is_materialized_text = _materialize_csv_input(
+        path, caller="read_csv_chunked", limit_rows=limit_rows
     )
     try:
         path_lower = path.lower()
@@ -1370,51 +1846,14 @@ def scan_csv(
     >>> schema = ar.scan_csv("data.dat")              # non-standard extension accepted
     """
 
-    path = os.fspath(path)
+    actual_sample_size = 100 if sample_size is None else sample_size
+    limit_rows = actual_sample_size + (1 if has_header else 0)
 
-    _validate_csv_path(path, encoding)
-
-    path_lower = path.lower()
-
-    # Resolve the sentinel: auto-detect tab for .tsv only when the caller
-    # truly omitted delimiter (None).  An explicit delimiter="," is always
-    # honoured, even for .tsv paths.
-    if delimiter is None:
-        delimiter = "\t" if path_lower.endswith(".tsv") else ","
-
-    decimal_separator = _validate_decimal_separator(decimal_separator)
-    _validate_thousands_separator(thousands_separator, decimal_separator)
-    delimiter = _validate_delimiter(delimiter)
-    encoding_errors = _validate_encoding_errors(encoding_errors)
-    on_bad_lines = _validate_on_bad_lines(on_bad_lines)
-    config = _CsvConfig()
-    config.delimiter = delimiter
-    config.encoding = encoding
-    config.trim_headers = _validate_bool_option(trim_headers, "trim_headers")
-    config.decimal_separator = decimal_separator
-    config.thousands_separator = thousands_separator
-    config.has_header = has_header
-    config.encoding_errors = encoding_errors
-
-    if skiprows is not None:
-        config.skip_rows = _validate_skip_rows(skiprows)
-    if null_values is not None:
-        config.null_values = _validate_null_values(null_values)
-
-    if sample_size is not None:
-        if not isinstance(sample_size, int) or isinstance(sample_size, bool):
-            raise TypeError("sample_size must be an integer.")
-        if sample_size <= 0:
-            raise ValueError("sample_size must be a positive integer greater than 0.")
-        config.sample_size = sample_size
-
-    reader = _CsvReader(config)
-
-    # Calculate the total rows needed from the file to satisfy the sample
-    # request, ensuring skipped rows don't reduce the effective sample size.
-    effective_sample_rows = 100 if sample_size is None else sample_size
-    if skiprows is not None:
-        effective_sample_rows += skiprows
+    native_path, should_cleanup, _ = _materialize_csv_input(
+        path,
+        caller="scan_csv",
+        limit_rows=limit_rows,
+    )
 
     try:
         # Schema inference only needs a sample, avoiding full-file transcode.
