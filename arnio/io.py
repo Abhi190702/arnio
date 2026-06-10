@@ -1407,7 +1407,9 @@ def write_csv(
                 encoding_errors=encoding_errors,
             )
         except Exception as e:
-            raise ValueError(f"Could not scan existing CSV to validate schema: {e}") from e
+            raise ValueError(
+                f"Could not scan existing CSV to validate schema: {e}"
+            ) from e
 
         existing_cols = list(schema.keys())
         if existing_cols != frame.columns:
