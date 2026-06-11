@@ -1,5 +1,7 @@
 import time
+
 import arnio
+
 
 def run_benchmark():
     # 1. Tiny frame to isolate the Python-to-C++ call boundary overhead
@@ -21,10 +23,10 @@ def run_benchmark():
     times = []
     for i in range(samples):
         start_time = time.perf_counter()
-        
+
         for _ in range(iterations_per_sample):
             _ = arnio.normalize_case(frame, case_type="lower")
-            
+
         end_time = time.perf_counter()
         elapsed = end_time - start_time
         times.append(elapsed)
@@ -34,6 +36,7 @@ def run_benchmark():
     print("------------------------------------------------------")
     print(f"AVERAGE TIME: {avg_time:.4f} seconds")
     print("======================================================\n")
+
 
 if __name__ == "__main__":
     run_benchmark()
