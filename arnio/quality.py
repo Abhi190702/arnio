@@ -544,7 +544,7 @@ class DataQualityReport:
             if not reason or not exclude_columns:
                 return reason
             for col in exclude_columns:
-                pattern = rf"\b{re.escape(col)}\b"
+                pattern = rf"(?<!\w){re.escape(col)}(?!\w)"
                 reason = re.sub(pattern, "[REDACTED]", reason)
             return reason
 
