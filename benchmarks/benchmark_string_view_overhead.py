@@ -3,6 +3,10 @@ Microbenchmark for std::string_view overhead reduction.
 
 This benchmark measures the performance improvement from using std::string_view
 for read-only string parameters instead of const std::string& in the C++ cleaning module.
+
+Instead of looping Python calls, this benchmark creates a large dataset (500,000 rows)
+and measures a single execution, which properly stresses the C++ optimizations rather
+than the Pybind11 boundary overhead.
 """
 
 import time
@@ -10,28 +14,40 @@ import time
 import arnio
 
 
-def benchmark_drop_duplicates():
-    """Benchmark drop_duplicates function with string_view parameter."""
-    df = arnio.DataFrame({"A": [1, 2], "B": ["x", "y"]})
+def benchmark_strip_whitespace():
+    """Benchmark strip_whitespace function with a large dataset."""
+    # Generate 500,000 rows of data with leading/trailing whitespace
+    data = ["  hello world  "] * 500_000
+    frame = arnio.from_dict({"col1": data})
 
+    # Warmup run (without timing) to avoid JIT compilation overhead
+    _ = arnio.strip_whitespace(frame)
+
+    # Single execution measured with perf_counter
     start = time.perf_counter()
-    for _ in range(500_000):
-        _ = arnio.drop_duplicates(df)
+    result = arnio.strip_whitespace(frame)
     end = time.perf_counter()
 
-    return end - start
+    elapsed = end - start
+    return elapsed
 
 
 def benchmark_normalize_case():
-    """Benchmark normalize_case function with string_view parameter."""
-    df = arnio.DataFrame({"A": [1, 2], "B": ["Hello", "World"]})
+    """Benchmark normalize_case function with a large dataset."""
+    # Generate 500,000 rows of data with mixed casing
+    data = ["Hello World"] * 500_000
+    frame = arnio.from_dict({"col1": data})
 
+    # Warmup run (without timing)
+    _ = arnio.normalize_case(frame)
+
+    # Single execution measured with perf_counter
     start = time.perf_counter()
-    for _ in range(500_000):
-        _ = arnio.normalize_case(df)
+    result = arnio.normalize_case(frame)
     end = time.perf_counter()
 
-    return end - start
+    elapsed = end - start
+    return elapsed
 
 
 if __name__ == "__main__":
@@ -39,16 +55,14 @@ if __name__ == "__main__":
     print("std::string_view Overhead Microbenchmark")
     print("=" * 60)
 
-    print("\nBenchmarking drop_duplicates (500,000 iterations)...")
-    drop_dup_time = benchmark_drop_duplicates()
-    print(f"  Total time: {drop_dup_time:.4f} seconds")
-    print(f"  Per call:   {drop_dup_time / 500_000 * 1_000_000:.4f} microseconds")
+    print("\nBenchmarking strip_whitespace (500,000 rows, single execution)...")
+    strip_time = benchmark_strip_whitespace()
+    print(f"  Total time: {strip_time:.4f} seconds")
 
-    print("\nBenchmarking normalize_case (500,000 iterations)...")
+    print("\nBenchmarking normalize_case (500,000 rows, single execution)...")
     normalize_time = benchmark_normalize_case()
     print(f"  Total time: {normalize_time:.4f} seconds")
-    print(f"  Per call:   {normalize_time / 500_000 * 1_000_000:.4f} microseconds")
 
     print("\n" + "=" * 60)
-    print(f"Combined total time: {drop_dup_time + normalize_time:.4f} seconds")
+    print(f"Combined total time: {strip_time + normalize_time:.4f} seconds")
     print("=" * 60)
