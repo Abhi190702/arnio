@@ -1365,9 +1365,9 @@ def write_csv(
     >>> ar.write_csv(frame, "output.csv")
     >>> ar.write_csv(frame, "output.tsv", delimiter="\\t")
     >>> ar.write_csv(frame, "output_latin1.csv", encoding="latin-1")
-    
+
     Append to an existing file (headers are omitted if the file exists):
-    
+
     >>> ar.write_csv(new_frame, "output.csv", append=True)
     """
     if not isinstance(frame, ArFrame):
@@ -1409,7 +1409,9 @@ def write_csv(
             f.seek(-1, os.SEEK_END)
             last_byte = f.read(1)
             if last_byte not in (b"\n", b"\r"):
-                raise ValueError("Cannot append to a CSV file that lacks a final line terminator.")
+                raise ValueError(
+                    "Cannot append to a CSV file that lacks a final line terminator."
+                )
 
         try:
             schema = scan_csv(
