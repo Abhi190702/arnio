@@ -197,7 +197,6 @@ class TestFilterRowsInvalidComparisonTypesPipeline:
 
 
 class TestFilterRowsTypeCastErrorRegression:
-
     def test_non_numeric_string_on_numeric_column_arframe_raises_typecast_error(self):
         frame = _make_frame({"score": [10, 20, 30]})
         with pytest.raises(TypeCastError, match="filter_rows"):
