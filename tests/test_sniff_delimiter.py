@@ -278,7 +278,5 @@ class TestSniffDelimiterPublicAPI:
         """sniff_delimiter raises ValueError when delimiter is ambiguous (mixed delimiters, consistent counts)."""
         path = tmp_path / "ambiguous.csv"
         path.write_text("a,b,c\nd;e;f\n")
-        with pytest.raises(
-            ValueError, match="Could not determine CSV delimiter"
-        ):
+        with pytest.raises(ValueError, match="Could not determine CSV delimiter"):
             ar.sniff_delimiter(str(path))
