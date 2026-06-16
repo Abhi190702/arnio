@@ -3726,10 +3726,64 @@ class TestCollapseRareCategories:
         frame = ar.from_pandas(
             pd.DataFrame({"city": ["NYC"] * 50 + ["LA"] * 30 + ["Rare"] * 1})
         )
-        r1 = ar.to_pandas(
-            ar.collapse_rare_categories(frame, column="city", threshold=0.02)
+        df = ar.to_pandas(result)
+        assert df["email"].iloc[0] == hashlib.sha256(b"user@example.com").hexdigest()
+
+    def test_pipeline_step_default_algorithm(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.pipeline(frame, [("hash_columns", {"subset": ["user_id"]})])
+        df = ar.to_pandas(result)
+        assert df["user_id"].iloc[0] == hashlib.sha256(b"abc123").hexdigest()
+
+    def test_input_frame_is_not_mutated(self):
+
+        frame = self._frame()
+        df_before = ar.to_pandas(frame).copy()
+        ar.hash_columns(frame, subset=["email", "user_id"])
+        df_after = ar.to_pandas(frame)
+        # Original frame must be byte-for-byte identical after the call
+        assert df_after["email"].iloc[0] == df_before["email"].iloc[0]
+        assert df_after["user_id"].iloc[0] == df_before["user_id"].iloc[0]
+        assert pd.isna(df_after["email"].iloc[1]) == pd.isna(df_before["email"].iloc[1])
+
+
+class TestSanitizeColumnNames:
+    """Tests for arnio.sanitize_column_names."""
+
+    def test_removes_leading_underscores(self):
+        frame = ar.from_pandas(pd.DataFrame({"_name": [1, 2], "age": [3, 4]}))
+        result = ar.sanitize_column_names(frame)
+        assert list(result.columns) == ["name", "age"]
+
+    def test_removes_trailing_underscores(self):
+        frame = ar.from_pandas(pd.DataFrame({"name_": [1, 2], "age__": [3, 4]}))
+        result = ar.sanitize_column_names(frame)
+        assert list(result.columns) == ["name", "age"]
+
+    def test_collapse_consecutive_underscores(self):
+        frame = ar.from_pandas(pd.DataFrame({"a__b": [1, 2], "c": [3, 4]}))
+        result = ar.sanitize_column_names(frame)
+        assert list(result.columns) == ["a_b", "c"]
+
+    def test_no_change_for_clean_names(self):
+        frame = ar.from_pandas(pd.DataFrame({"name": [1, 2], "age": [3, 4]}))
+        result = ar.sanitize_column_names(frame)
+        assert list(result.columns) == ["name", "age"]
+
+    def test_raises_on_duplicate_after_sanitization(self):
+        frame = ar.from_pandas(pd.DataFrame({"a": [1], "_a": [2]}))
+        with pytest.raises(ValueError, match="duplicates"):
+            ar.sanitize_column_names(frame)
+
+    def test_rejects_non_frame_input(self):
+        with pytest.raises(TypeError, match="must be an ArFrame"):
+            ar.sanitize_column_names([])
+
+    def test_mixed_cleanup(self):
+        frame = ar.from_pandas(
+            pd.DataFrame({"__name__": [1], "age___": [2], "user_id": [3]})
         )
-        r2 = ar.to_pandas(
-            ar.collapse_rare_categories(frame, column="city", threshold=0.02)
-        )
-        pd.testing.assert_frame_equal(r1, r2)
+        result = ar.sanitize_column_names(frame)
+        assert list(result.columns) == ["name", "age", "user_id"]
