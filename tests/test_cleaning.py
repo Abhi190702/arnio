@@ -7,7 +7,7 @@ import arnio as ar
 from arnio import from_pandas, to_pandas
 from arnio.cleaning import (
     _validate_column_sequence,
-    _validate_existing_column_sequence,
+    _validate_mapping,
     _validate_string_mapping,
 )
 
@@ -2995,4 +2995,167 @@ class TestValidateExistingColumnSequence:
         result = _validate_existing_column_sequence(
             ["col1", "col3"], available_columns=available, argument_name="columns"
         )
-        assert result == ["col1", "col3"]
+        result = ar.fill_nulls(frame, "1.0", subset=["x"])
+        df = to_pandas(result)
+        assert df["x"].iloc[0] == pytest.approx(1.0)
+        assert df["x"].iloc[2] == pytest.approx(1.0)
+
+    def test_fill_nulls_float64_non_finite_fill_rejected_under_de_locale(self):
+        """Non-finite fill values must still be rejected regardless of locale."""
+        prev = _set_locale("de_DE.UTF-8")
+        try:
+            frame = ar.from_pandas(
+                pd.DataFrame({"x": pd.array([None, 1.0], dtype="Float64")})
+            )
+            with pytest.raises(Exception):
+                ar.fill_nulls(frame, "inf", subset=["x"])
+        finally:
+            _locale.setlocale(_locale.LC_NUMERIC, prev)
+
+
+class TestHashColumns:
+    """Tests for ar.hash_columns (pure-Python / hashlib implementation)."""
+
+    def _frame(self):
+        return ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "email": ["user@example.com", None, ""],
+                    "user_id": ["abc123", "xyz999", "def456"],
+                    "age": [30, 25, 40],
+                }
+            )
+        )
+
+    def test_sha256_produces_64_char_hex(self):
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["email"])
+        df = ar.to_pandas(result)
+        digest = df["email"].iloc[0]
+        assert len(digest) == 64
+        assert all(c in "0123456789abcdef" for c in digest)
+
+    def test_sha256_known_answer(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["email"])
+        df = ar.to_pandas(result)
+        assert df["email"].iloc[0] == hashlib.sha256(b"user@example.com").hexdigest()
+
+    def test_sha256_empty_string_is_hashed_not_null(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["email"])
+        df = ar.to_pandas(result)
+        assert df["email"].iloc[2] == hashlib.sha256(b"").hexdigest()
+
+    def test_null_cells_preserved(self):
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["email"])
+        df = ar.to_pandas(result)
+        assert pd.isna(df["email"].iloc[1])
+
+    def test_non_subset_columns_unchanged(self):
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["email"])
+        df = ar.to_pandas(result)
+        assert df["user_id"].iloc[0] == "abc123"
+        assert df["age"].iloc[0] == 30
+
+    def test_md5_produces_32_char_hex(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["user_id"], algorithm="md5")
+        df = ar.to_pandas(result)
+        digest = df["user_id"].iloc[0]
+        assert len(digest) == 32
+        assert all(c in "0123456789abcdef" for c in digest)
+        assert digest == hashlib.md5(b"abc123").hexdigest()
+
+    def test_multiple_subset_columns(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.hash_columns(frame, subset=["email", "user_id"])
+        df = ar.to_pandas(result)
+        assert df["email"].iloc[0] == hashlib.sha256(b"user@example.com").hexdigest()
+        assert df["user_id"].iloc[0] == hashlib.sha256(b"abc123").hexdigest()
+
+    def test_missing_column_raises_value_error(self):
+        frame = self._frame()
+        with pytest.raises(ValueError, match="not found"):
+            ar.hash_columns(frame, subset=["nonexistent"])
+
+    def test_non_string_column_raises_type_error(self):
+        frame = self._frame()
+        with pytest.raises(TypeError, match="string"):
+            ar.hash_columns(frame, subset=["age"])
+
+    def test_empty_subset_raises_value_error(self):
+        frame = self._frame()
+        with pytest.raises(ValueError, match="non-empty"):
+            ar.hash_columns(frame, subset=[])
+
+    def test_unsupported_algorithm_raises_value_error(self):
+        frame = self._frame()
+        with pytest.raises(ValueError, match="algorithm"):
+            ar.hash_columns(frame, subset=["email"], algorithm="sha512")
+
+    def test_pipeline_step(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.pipeline(
+            frame,
+            [("hash_columns", {"subset": ["email", "user_id"], "algorithm": "sha256"})],
+        )
+        df = ar.to_pandas(result)
+        assert df["email"].iloc[0] == hashlib.sha256(b"user@example.com").hexdigest()
+
+    def test_pipeline_step_default_algorithm(self):
+        import hashlib
+
+        frame = self._frame()
+        result = ar.pipeline(frame, [("hash_columns", {"subset": ["user_id"]})])
+        df = ar.to_pandas(result)
+        assert df["user_id"].iloc[0] == hashlib.sha256(b"abc123").hexdigest()
+
+    def test_input_frame_is_not_mutated(self):
+
+        frame = self._frame()
+        df_before = ar.to_pandas(frame).copy()
+        ar.hash_columns(frame, subset=["email", "user_id"])
+        df_after = ar.to_pandas(frame)
+        # Original frame must be byte-for-byte identical after the call
+        assert df_after["email"].iloc[0] == df_before["email"].iloc[0]
+        assert df_after["user_id"].iloc[0] == df_before["user_id"].iloc[0]
+        assert pd.isna(df_after["email"].iloc[1]) == pd.isna(df_before["email"].iloc[1])
+
+
+class TestValidateMapping:
+    """Tests for arnio.cleaning._validate_mapping helper."""
+
+    def test_non_mapping_raises_type_error(self):
+        with pytest.raises(TypeError, match="must be a mapping"):
+            _validate_mapping("not a dict", argument_name="arg_name")
+
+    def test_non_mapping_with_custom_message(self):
+        with pytest.raises(TypeError, match="custom message"):
+            _validate_mapping(
+                42, argument_name="my_arg", non_mapping_message="custom message"
+            )
+
+    def test_empty_mapping_allow_empty_false_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            _validate_mapping({}, argument_name="my_arg", allow_empty=False)
+
+    def test_empty_mapping_allow_empty_true_returns_empty_dict(self):
+        result = _validate_mapping({}, argument_name="my_arg", allow_empty=True)
+        assert result == {}
+
+    def test_valid_mapping_returns_dict(self):
+        result = _validate_mapping({"a": 1, "b": 2}, argument_name="my_arg")
+        assert result == {"a": 1, "b": 2}
