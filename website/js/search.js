@@ -55,13 +55,15 @@ if (searchInput && resultsBox) {
       return;
     }
 
-    items.forEach((item) => {
-      const link = document.createElement("a");
-      link.className = "search-result";
-      link.href = item.page;
-      link.textContent = item.title;
-      link.setAttribute("role", "option");
-      link.setAttribute("aria-selected", "false");
+    resultsBox.setAttribute("role", "listbox");
+
+    items.forEach((item, idx) => {
+      const div = document.createElement("div");
+      div.className = "search-result";
+      div.setAttribute("role", "option");
+      div.setAttribute("tabindex", "-1");
+      div.setAttribute("id", `search-result-${idx}`);
+      div.textContent = item.title;
 
       resultsBox.appendChild(link);
     });
@@ -127,8 +129,9 @@ if (searchInput && resultsBox) {
       results[selectedIndex].setAttribute("aria-selected", "true");
     }
 
-    if (e.key === "Enter" && selectedIndex >= 0) {
-      window.location.href = results[selectedIndex].getAttribute("href");
+    if (e.key === "Enter" && selectedIndex >= 0 && results.length > 0) {
+      e.preventDefault();
+      results[selectedIndex].click();
     }
 
     if (e.key === "Escape") {
