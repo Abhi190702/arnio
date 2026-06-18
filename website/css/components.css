@@ -5,12 +5,18 @@
 /* ── Top Navigation ──────────────────────────────────────── */
 .top-nav {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 95%;
+  max-width: var(--container-wide);
   height: var(--nav-height);
-  background: var(--color-bg);
-  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-nav-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139, 148, 158, 0.15);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
   z-index: 1000;
   transition: background-color var(--transition-base), box-shadow var(--transition-base);
 }
@@ -67,25 +73,12 @@
   font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
   text-decoration: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   transition:
     color var(--transition-fast),
-    background-color var(--transition-fast);
+    background-color var(--transition-fast),
+    transform var(--transition-fast);
   box-sizing: border-box;
-}
-
-.nav-links a::after {
-  content: "";
-  position: absolute;
-  left: var(--space-3);
-  bottom: 4px;
-  width: calc(100% - var(--space-6));
-  height: 2px;
-  background: linear-gradient(to right, #ef4444, #f97316);
-  border-radius: var(--radius-full);
-  transform: scaleX(0);
-  transform-origin: center;
-  transition: transform 0.3s ease;
 }
 
 .nav-links a:hover,
@@ -93,17 +86,13 @@
   color: var(--color-text);
   background: var(--color-surface);
   text-decoration: none;
-}
-
-.nav-links a:hover::after,
-.nav-links a:focus-visible::after,
-.nav-links a.active::after {
-  transform: scaleX(1);
+  transform: translateY(-1px);
 }
 
 .nav-links a.active {
   color: var(--color-accent-text);
   background: var(--color-accent-subtle);
+  font-weight: var(--font-weight-semibold);
 }
 
 .nav-actions {
@@ -121,9 +110,11 @@
   padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   text-decoration: none;
   transition: all var(--transition-fast);
+  border: 1px solid rgba(139, 148, 158, 0.15);
+  background: var(--color-surface);
 }
 
 .nav-github:hover,
@@ -131,10 +122,19 @@
   color: var(--color-text);
   background: var(--color-surface);
   text-decoration: none;
+  transform: translateY(-1px);
 }
 
 .nav-discord:hover {
-  color: var(--color-discord);
+  background: var(--color-discord);
+  color: #ffffff;
+  border-color: var(--color-discord);
+}
+
+.nav-github:hover {
+  background: var(--color-text);
+  color: var(--color-bg);
+  border-color: var(--color-text);
 }
 
 .nav-github svg {
@@ -160,7 +160,7 @@
   color: var(--color-text-secondary);
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -173,6 +173,7 @@
   color: var(--color-text);
   border-color: var(--color-text-secondary);
   background: var(--color-surface);
+  transform: translateY(-1px);
 }
 
 /* Mobile hamburger */
@@ -195,11 +196,13 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-bg);
+  background: var(--color-nav-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   z-index: 999;
   overflow-y: auto;
   padding: var(--space-6);
-  border-top: 1px solid var(--color-border-subtle);
+  border-top: 1px solid rgba(139, 148, 158, 0.15);
 }
 
 .mobile-menu.open {
@@ -214,21 +217,9 @@
   font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
   text-decoration: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   transition: all var(--transition-fast);
   margin-bottom: var(--space-1);
-}
-
-.mobile-menu a::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  width: 0;
-  height: 2px;
-  background: linear-gradient(to right, #ef4444, #f97316);
-  transition: width 0.3s ease, left 0.3s ease;
-  border-radius: var(--radius-full);
 }
 
 .mobile-menu a:hover,
@@ -236,12 +227,7 @@
 .mobile-menu a.active {
   color: var(--color-text);
   background: var(--color-surface);
-}
-
-.mobile-menu a:hover::after,
-.mobile-menu a:focus-visible::after {
-  width: calc(100% - var(--space-8));
-  left: var(--space-4);
+  transform: translateX(4px);
 }
 
 @media (max-width: 767px) {

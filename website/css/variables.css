@@ -6,6 +6,7 @@
   /* ── Color Palette (Light) ────────────────────────────── */
   --color-bg:              #ffffff;
   --color-bg-alt:          #f6f8fa;
+  --color-nav-bg:          rgba(255, 255, 255, 0.6);
   --color-surface:         #f6f8fa;
   --color-surface-hover:   #eaeef2;
   --color-border:          #d0d7de;
@@ -113,6 +114,7 @@
 [data-theme="dark"] {
   --color-bg:              #0d1117;
   --color-bg-alt:          #010409;
+  --color-nav-bg:          rgba(13, 17, 23, 0.6);
   --color-surface:         #161b22;
   --color-surface-hover:   #1c2129;
   --color-border:          #30363d;
