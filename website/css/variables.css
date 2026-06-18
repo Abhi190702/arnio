@@ -6,12 +6,12 @@
   /* ── Color Palette (Light) ────────────────────────────── */
   --color-bg:              #ffffff;
   --color-bg-alt:          #f6f8fa;
-  --color-nav-bg:          rgba(255, 255, 255, 0.6);
+  --color-nav-bg:          rgba(255, 255, 255, 0.85);
   --color-nav-link:        #1f2328;
   --color-nav-link-hover:  #000000;
   --color-nav-pill:        rgba(0, 0, 0, 0.05);
   --color-nav-pill-active: rgba(0, 0, 0, 0.08);
-  --color-nav-border:      rgba(0, 0, 0, 0.08);
+  --color-nav-border:      rgba(0, 0, 0, 0.12);
   --color-surface:         #f6f8fa;
   --color-surface-hover:   #eaeef2;
   --color-border:          #d0d7de;
