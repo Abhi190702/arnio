@@ -691,29 +691,29 @@ class DataQualityReport:
             names raise ``KeyError``.
         """
         if file_path is not None:
-        if isinstance(file_path, bool) or not isinstance(
-            file_path, (str, bytes, os.PathLike)
-        ):
-            raise TypeError(
-                f"file_path must be a string, bytes, or os.PathLike object, got {type(file_path).__name__}"
-            )
+            if isinstance(file_path, bool) or not isinstance(
+                file_path, (str, bytes, os.PathLike)
+            ):
+                raise TypeError(
+                    f"file_path must be a string, bytes, or os.PathLike object, got {type(file_path).__name__}"
+                )
 
-        norm_path = os.fspath(file_path)
+            norm_path = os.fspath(file_path)
 
-        # Handle empty path validation for both bytes and strings securely
-        if isinstance(norm_path, bytes) and norm_path == b"":
-            raise ValueError("Report path cannot be empty")
-        if isinstance(norm_path, str) and norm_path == "":
-            raise ValueError("Report path cannot be empty")
+            # Handle empty path validation for both bytes and strings securely
+            if isinstance(norm_path, bytes) and norm_path == b"":
+                raise ValueError("Report path cannot be empty")
+            if isinstance(norm_path, str) and norm_path == "":
+                raise ValueError("Report path cannot be empty")
 
-        # Reject paths that point to a directory instead of a file
-        if os.path.isdir(norm_path):
-            raise ValueError("file_path must point to a file, not a directory")
+            # Reject paths that point to a directory instead of a file
+            if os.path.isdir(norm_path):
+                raise ValueError("file_path must point to a file, not a directory")
 
-        # Reject missing parent directories without breaking simple relative filenames
-        parent_dir = os.path.dirname(norm_path)
-        if parent_dir and not os.path.exists(parent_dir):
-            raise ValueError("parent_dir does not exist")
+            # Reject missing parent directories without breaking simple relative filenames
+            parent_dir = os.path.dirname(norm_path)
+            if parent_dir and not os.path.exists(parent_dir):
+                raise ValueError("parent_dir does not exist")
 
         redact_top_values = _validate_bool_option(
             redact_top_values, "redact_top_values"
