@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: quality gate exports leak ambiguous pandas errors and non-standard json (#2467)
+# TODO: feature: expose detailed arframe memory usage profiling hooks (#2327)
