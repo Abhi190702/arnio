@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: feat: add native uuid and ipaddress schema field validators (#2117)
+# TODO: accessibility: theme toggle does not expose pressed state (#2449)
