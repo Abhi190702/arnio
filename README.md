@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 validationresult accepts malformed constructor fields (#2406)
+# TODO: bug: published 1.19.0 validate(max_errors=0) reports invalid data as passed (#2405)
