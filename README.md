@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 register_step accepts an empty step name (#2377)
+# TODO: bug: published 1.19.0 read_jsonl accepts nan as null (#2376)
