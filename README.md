@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 read_csv silently coerces invalid forced dtype tokens (#2443)
+# TODO: [feature request] implement resilient error handling (on_error='strict' | 'coerce' | 'drop') during high-throughput parsing and validation (#2010)
