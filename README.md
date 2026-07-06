@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 arrow and parquet exports lose zero-column row counts (#2400)
+# TODO: bug: published 1.19.0 normalize_unicode reports non-string form as unsupported value (#2399)
