@@ -2161,3 +2161,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
+# TODO: bug: published 1.19.0 writers fail bytes paths with raw suffix errors (#2445)
