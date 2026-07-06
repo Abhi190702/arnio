@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 register_duckdb accepts whitespace-only relation names (#2390)
+# TODO: bug: published 1.19.0 from_pandas silently stringifies unsupported scalar values (#2388)
