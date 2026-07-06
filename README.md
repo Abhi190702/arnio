@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: read_csv throws c++ runtime_error on duplicate column headers (#1337)
+# TODO: bug: published 1.19.0 from_records silently drops data when columns is empty (#2430)
