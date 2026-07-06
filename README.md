@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: security: markdown quality report exclude_columns leaks nested mapping keys (#2375)
+# TODO: security: json quality report exclude_columns leaks excluded names in suggestion metadata (#2374)
