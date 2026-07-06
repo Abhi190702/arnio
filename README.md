@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: report to_json methods accept string indent and emit invalid json (#2411)
+# TODO: bug: published 1.19.0 arframe.to_dict is missing orient support (#2410)
