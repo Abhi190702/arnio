@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 metadata is missing documented duckdb and polars extras (#2434)
+# TODO: test: consolidate internal helper coverage for cleaning, quality, and schema (#1403)
