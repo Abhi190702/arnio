@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 read_jsonl accepts nan as null (#2376)
+# TODO: security: markdown quality report exclude_columns leaks nested mapping keys (#2375)
