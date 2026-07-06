@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 wheel is missing the arnio cli entry point (#2352)
+# TODO: gssoc: fix focus trap and accessibility state management in mobile navigation (#2587)
