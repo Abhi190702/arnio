@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: bug: two-pass csv reading can silently inject null values when a source file changes between passes (#1990)
+# TODO: bug: read_csv admits non-finite numeric tokens that later break reports (#2441)
