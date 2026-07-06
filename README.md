@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 select_dtypes raises instead of returning zero-column frames (#2409)
+# TODO: bug: published 1.19.0 wheel is missing documented public api exports (#2408)
