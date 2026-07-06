@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: feature: advanced cross-column conditional dependency validation (rules graph) (#1624)
+# TODO: bug: docs search results are clickable divs without link semantics (#2436)
