@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 constructors stringify arbitrary python objects (#2453)
+# TODO: feature: chunked & streaming processing engine for out-of-core datasets (#2131)
