@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 schema.from_json ignores unknown schema keys (#2412)
+# TODO: bug: report to_json methods accept string indent and emit invalid json (#2411)
