@@ -1848,4 +1848,4 @@ loaded_steps = ar.load_pipeline("my_pipeline.json")
 ## Security
 
 Please review our [Security Policy](SECURITY.md) for responsible vulnerability reporting guidelines.
-# TODO: bug: published 1.19.0 read_csv_chunked still yields empty chunks after skipped bad rows (#2440)
+# TODO: feature:  multi-threaded execution engine for column-level data cleaning (#1945)
