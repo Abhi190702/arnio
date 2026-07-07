@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2649: [Performance] C++ CSV reader has no memory cap - parsing large files causes OOM 
+# TODO: fix for #2587: GSSoC: Fix Focus Trap and Accessibility State Management in Mobile Navigation
