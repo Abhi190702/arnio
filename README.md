@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2435: Bug: published 1.19.0 wheel leaks raw custom validator exceptions
+<!-- fix: Bug: published 1.19.0 metadata is missing documented duckdb  (#2434) -->
