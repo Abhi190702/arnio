@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2415: Bug: sniff_delimiter reports directory paths as empty CSV files
+# TODO: security - Security: published 1.19.0 Markdown reports lack exclude_col (#2414)
