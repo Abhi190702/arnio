@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2392: Bug: published 1.19.0 register_validator accepts whitespace names and lacks over
+# TODO: fix for #2391: Bug: published 1.19.0 Field accepts invalid dtype and impossible numeric bounds
