@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2469: Bug: HTTP .csv.gz inputs fail before gzip decompression
+# TODO: fix for #2467: Bug: quality gate exports leak ambiguous pandas errors and non-standard JSON
