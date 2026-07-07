@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-<!-- fix: Website: docs search is unavailable on mobile layouts (#2382) -->
+<!-- fix: Website: docs search omits many documented API entries (#2381) -->
