@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2388: Bug: published 1.19.0 from_pandas silently stringifies unsupported scalar values
+# TODO: fix for #2387: Bug: published 1.19.0 write_csv accepts invalid line terminators
