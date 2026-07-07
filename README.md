@@ -732,3 +732,5 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 
 </div>
+
+<!-- fix: Docs: API reference documents unsupported read_csv mode="lax (#2396) -->
