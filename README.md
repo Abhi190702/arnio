@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2387: Bug: published 1.19.0 write_csv accepts invalid line terminators
+# TODO: security - Security: Markdown quality reports emit raw HTML from column (#2385)
