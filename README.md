@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-<!-- fix: Bug: docs search results are clickable divs without link sem (#2436) -->
+# TODO: fix for #2435: Bug: published 1.19.0 wheel leaks raw custom validator exceptions
