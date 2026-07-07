@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-<!-- fix: Docs: API reference documents unsupported read_csv mode="lax (#2396) -->
+# TODO: security - Bug: published 1.19.0 schema export helpers miss path and me (#2395)
