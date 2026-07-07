@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2412: Bug: published 1.19.0 Schema.from_json ignores unknown schema keys
+# TODO: fix for #2411: Bug: report to_json methods accept string indent and emit invalid JSON
