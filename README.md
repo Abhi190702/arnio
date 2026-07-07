@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2409: Bug: published 1.19.0 select_dtypes raises instead of returning zero-column fram
+<!-- fix: Bug: published 1.19.0 wheel is missing documented public API (#2408) -->
