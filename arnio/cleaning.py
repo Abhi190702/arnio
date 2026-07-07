@@ -1664,14 +1664,15 @@ def safe_divide_columns(
         numeric_types = {"int64", "float64"}
 
         if numerator_dtype in numeric_types and denominator_dtype in numeric_types:
-            return ArFrame(
+            return _wrap(
                 _safe_divide_columns(
                     frame._frame,
                     numerator,
                     denominator,
                     output_column,
                     fill_value,
-                )
+                ),
+                frame,
             )
 
     df = to_pandas(frame) if is_arframe else frame
@@ -1710,7 +1711,12 @@ def safe_divide_columns(
     df = df.copy()
     df[output_column] = result.fillna(fill_value)
 
-    return from_pandas(df) if is_arframe else df
+    if is_arframe:
+        result_frame = from_pandas(df)
+        result_frame._attrs = copy.deepcopy(frame._attrs)
+        return result_frame
+
+    return df
 
 
 def drop_columns_matching(frame, pattern):

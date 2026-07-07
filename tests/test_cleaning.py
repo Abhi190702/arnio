@@ -2551,7 +2551,160 @@ class TestSafeDivideColumns:
 
         assert list(df["ratio"]) == [10.0, 10.0]
 
-    def test_native_output_column_overwrite_preserves_column_order(self):
+    def test_native_numeric_arframe_path_preserves_attrs(self):
+        frame = ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "revenue": [100.0, 200.0],
+                    "cost": [10.0, 20.0],
+                }
+            )
+        )
+        frame._attrs["source"] = {"name": "warehouse"}
+
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="revenue",
+            denominator="cost",
+            output_column="ratio",
+        )
+
+        assert result._attrs == frame._attrs
+        assert result._attrs is not frame._attrs
+        assert result._attrs["source"] is not frame._attrs["source"]
+
+    def test_pandas_fallback_arframe_path_preserves_attrs(self):
+        frame = ar.from_pandas(
+            pd.DataFrame(
+                {
+                    "revenue": ["100", "200"],
+                    "cost": ["10", "20"],
+                }
+            )
+        )
+        frame._attrs["source"] = {"name": "vendor_export"}
+
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="revenue",
+            denominator="cost",
+            output_column="ratio",
+        )
+
+        assert result._attrs == frame._attrs
+        assert result._attrs is not frame._attrs
+        assert result._attrs["source"] is not frame._attrs["source"]
+
+    # --- Regression tests for string zero denominators (bug fix) ---
+
+    def test_string_zero_denominator_uses_fill_value(self):
+        # String "0" must be treated as zero — not silently passed through.
+        frame = ar.from_pandas(
+            pd.DataFrame({"num": [10.0, 20.0, 30.0], "den": ["0", "2", "0"]})
+        )
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="num",
+            denominator="den",
+            output_column="ratio",
+            fill_value=-1.0,
+        )
+        df = ar.to_pandas(result)
+        assert list(df["ratio"]) == [-1.0, 10.0, -1.0]
+
+    def test_string_zero_point_zero_denominator_uses_fill_value(self):
+        # String "0.0" must also be treated as zero.
+        frame = ar.from_pandas(pd.DataFrame({"num": [10.0, 20.0], "den": ["0.0", "4"]}))
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="num",
+            denominator="den",
+            output_column="ratio",
+            fill_value=0.0,
+        )
+        df = ar.to_pandas(result)
+        assert df["ratio"].iloc[0] == 0.0
+        assert df["ratio"].iloc[1] == 5.0
+
+    def test_numeric_zero_denominator_uses_fill_value(self):
+        # Numeric 0 (int) must still be caught — regression guard.
+        frame = ar.from_pandas(pd.DataFrame({"num": [10.0, 20.0], "den": [0, 4]}))
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="num",
+            denominator="den",
+            output_column="ratio",
+            fill_value=-99.0,
+        )
+        df = ar.to_pandas(result)
+        assert df["ratio"].iloc[0] == -99.0
+        assert df["ratio"].iloc[1] == 5.0
+
+    def test_nullable_denominator_uses_fill_value(self):
+        # None / pd.NA denominator must use fill_value, not raise.
+        frame = ar.from_pandas(
+            pd.DataFrame({"num": [10.0, 20.0, 30.0], "den": [None, 4.0, None]})
+        )
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="num",
+            denominator="den",
+            output_column="ratio",
+            fill_value=0.0,
+        )
+        df = ar.to_pandas(result)
+        assert df["ratio"].iloc[0] == 0.0
+        assert df["ratio"].iloc[1] == 5.0
+        assert df["ratio"].iloc[2] == 0.0
+
+    def test_valid_nonzero_numeric_string_denominator_divides_correctly(self):
+        # String "2" and "4" must produce valid division, not be masked.
+        frame = ar.from_pandas(pd.DataFrame({"num": [10.0, 20.0], "den": ["2", "4"]}))
+        result = ar.safe_divide_columns(
+            frame,
+            numerator="num",
+            denominator="den",
+            output_column="ratio",
+            fill_value=-1.0,
+        )
+        df = ar.to_pandas(result)
+        assert df["ratio"].iloc[0] == 5.0
+        assert df["ratio"].iloc[1] == 5.0
+
+    def test_invalid_non_null_denominator_string_raises(self):
+        # A non-null, non-numeric string like "abc" must raise ValueError,
+        # not be silently treated as null.
+        frame = ar.from_pandas(pd.DataFrame({"num": [10.0, 20.0], "den": ["abc", "4"]}))
+        with pytest.raises(
+            ValueError, match="Denominator column 'den' contains non-numeric"
+        ):
+            ar.safe_divide_columns(
+                frame, numerator="num", denominator="den", output_column="ratio"
+            )
+
+    def test_fill_value_bool_raises(self):
+        frame = ar.from_pandas(pd.DataFrame({"a": [1.0, 2.0], "b": [1.0, 0.0]}))
+        with pytest.raises(
+            TypeError, match="fill_value must be a finite float, not bool"
+        ):
+            ar.safe_divide_columns(frame, "a", "b", "ratio", fill_value=True)
+
+    def test_fill_value_nan_raises(self):
+        frame = ar.from_pandas(pd.DataFrame({"a": [1.0, 2.0], "b": [1.0, 0.0]}))
+        with pytest.raises(ValueError, match="fill_value must be finite"):
+            ar.safe_divide_columns(frame, "a", "b", "ratio", fill_value=float("nan"))
+
+    def test_fill_value_inf_raises(self):
+        frame = ar.from_pandas(pd.DataFrame({"a": [1.0, 2.0], "b": [1.0, 0.0]}))
+        with pytest.raises(ValueError, match="fill_value must be finite"):
+            ar.safe_divide_columns(frame, "a", "b", "ratio", fill_value=float("inf"))
+
+    def test_fill_value_negative_inf_raises(self):
+        frame = ar.from_pandas(pd.DataFrame({"a": [1.0, 2.0], "b": [1.0, 0.0]}))
+        with pytest.raises(ValueError, match="fill_value must be finite"):
+            ar.safe_divide_columns(frame, "a", "b", "ratio", fill_value=float("-inf"))
+
+    def test_fill_value_valid_float_passes(self):
         frame = ar.from_pandas(
             pd.DataFrame(
                 {
