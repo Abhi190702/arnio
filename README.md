@@ -1829,4 +1829,4 @@ arnio/
 <sub>Built with C++ and pybind11 · Licensed under MIT · Maintained by <a href="https://github.com/im-anishraj">@im-anishraj</a></sub>
 </div>
 
-# TODO: fix for #2380: Website: install copy button shows success even when clipboard write fails
+# TODO: fix for #2378: Bug: find_fuzzy_duplicates accepts invalid option types
