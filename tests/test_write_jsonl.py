@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 import arnio as ar
+import arnio.io as ar_io
 
 
 def test_write_jsonl_normal_frame(tmp_path):
@@ -21,6 +22,30 @@ def test_write_jsonl_normal_frame(tmp_path):
         {"id": 1, "name": "Alice", "score": 10.5},
         {"id": 2, "name": "Bob", "score": None},
     ]
+
+
+def test_write_jsonl_failure_preserves_existing_file(tmp_path, monkeypatch):
+    frame = ar.from_pandas(pd.DataFrame({"id": [1, 2]}))
+    path = tmp_path / "existing.jsonl"
+    original = '{"id":0}\n'
+    path.write_text(original, encoding="utf-8")
+    calls = 0
+    original_dumps = ar_io.json.dumps
+
+    def wrapped_dumps(row, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_dumps(row, **kwargs)
+        raise ValueError("simulated serialization failure")
+
+    monkeypatch.setattr(ar_io.json, "dumps", wrapped_dumps)
+
+    with pytest.raises(ValueError, match="cannot be serialized"):
+        ar.write_jsonl(frame, path)
+
+    assert path.read_text(encoding="utf-8") == original
+    assert not list(tmp_path.glob(f".{path.name}.*.tmp"))
 
 
 def test_write_jsonl_empty_frame(tmp_path):

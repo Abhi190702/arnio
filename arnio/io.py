@@ -2271,3 +2271,166 @@ def write_parquet(
         kwargs["row_group_size"] = row_group_size
 
     df.to_parquet(path, **kwargs)
+
+
+@contextmanager
+def _atomic_text_writer(
+    path: str,
+    *,
+    encoding: str,
+    errors: str | None = None,
+    newline: str | None = None,
+) -> Iterator[io.TextIOBase]:
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    basename = os.path.basename(path)
+    fd, tmp_path_str = tempfile.mkstemp(
+        dir=directory,
+        prefix=f".{basename}.",
+        suffix=".tmp",
+        text=True,
+    )
+    tmp_path: str | None = tmp_path_str
+    try:
+        with os.fdopen(
+            fd,
+            "w",
+            encoding=encoding,
+            errors=errors,
+            newline=newline,
+        ) as dst:
+            yield dst
+        assert tmp_path is not None
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def write_json(
+    frame: ArFrame,
+    path: str | os.PathLike[str],
+    *,
+    orient: str = "records",
+    indent: int | None = None,
+) -> None:
+    """Write an ArFrame to a JSON file.
+
+    This function exports the frame's data to JSON without pandas conversion.
+
+    Parameters
+    ----------
+    frame : ArFrame
+        The data frame to write.
+    path : str or path-like
+        Destination file path. Must end with ``.json``.
+    orient : str, default ``"records"``
+        The JSON orientation format to use. Supported values are
+        ``"records"``, ``"list"``, and ``"split"``.
+    indent : int, optional
+        If specified, the JSON output will be pretty-printed with that
+        indentation level. If ``None`` (the default), the JSON is written
+        compactly.
+
+    Raises
+    ------
+    TypeError
+        If the input frame is not an ArFrame, or path is not valid.
+    ValueError
+        If the file extension is not ``.json``, or if the orientation
+        is unsupported.
+
+    Examples
+    --------
+    >>> ar.write_json(frame, "output.json")
+    >>> ar.write_json(frame, "output.json", indent=4)
+    >>> ar.write_json(frame, "output.json", orient="list")
+    """
+    if not isinstance(frame, ArFrame):
+        raise TypeError("frame must be an ArFrame")
+
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        raise TypeError(
+            f"path must be a string, bytes, or os.PathLike object, got {type(path).__name__!r}"
+        )
+
+    path = os.fsdecode(os.fspath(path))
+    path_lower = path.lower()
+    if not path_lower.endswith(".json"):
+        raise ValueError(
+            f"Unsupported file format: {path}. " "write_json only supports .json files."
+        )
+
+    valid_orients = ("records", "list", "split")
+    if orient not in valid_orients:
+        raise ValueError(
+            f"Unsupported orient: {orient!r}. " f"Valid options are: {valid_orients}"
+        )
+
+    if indent is not None:
+        if isinstance(indent, bool) or not isinstance(indent, int):
+            raise TypeError("indent must be an integer or None")
+        if indent < 0:
+            raise ValueError("indent must be a non-negative integer")
+
+    data = frame.to_dict(orient=orient)
+
+    with _atomic_text_writer(path, encoding="utf-8") as f:
+        json.dump(data, f, indent=indent)
+
+
+def write_jsonl(
+    frame: ArFrame,
+    path: str | os.PathLike[str],
+    *,
+    encoding: str = "utf-8",
+    encoding_errors: str = "strict",
+) -> None:
+    """Write an ArFrame to a JSONL file."""
+    if not isinstance(frame, ArFrame):
+        raise TypeError("frame must be an ArFrame")
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        raise TypeError("path must be a string, bytes, or os.PathLike object")
+    path = os.fsdecode(os.fspath(path))
+    if not path.lower().endswith((".jsonl", ".ndjson")):
+        raise ValueError("path must end with .jsonl or .ndjson")
+    _validate_jsonl_encoding(encoding)
+    _validate_encoding_errors(encoding_errors)
+    try:
+        records = frame.to_dict(orient="records")
+    except Exception as exc:
+        raise RuntimeError(
+            f"write_jsonl: failed to convert frame to records: {exc}"
+        ) from exc
+
+    try:
+        with _atomic_text_writer(
+            path,
+            encoding=encoding,
+            errors=encoding_errors,
+            newline="",
+        ) as dst:
+            for row in records:
+                try:
+                    dst.write(
+                        json.dumps(
+                            row,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        )
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"write_jsonl: row contains a value that cannot be serialized as JSON: {exc}"
+                    ) from exc
+                dst.write("\n")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            f"write_jsonl: character cannot be encoded in {encoding!r}: {exc}"
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(str(exc)) from exc

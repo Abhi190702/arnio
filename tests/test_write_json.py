@@ -4,6 +4,7 @@ import pathlib
 import pytest
 
 import arnio as ar
+import arnio.io as ar_io
 from arnio.frame import ArFrame
 
 
@@ -62,6 +63,26 @@ def test_write_json_indent(sample_frame: ArFrame, tmp_path: pathlib.Path) -> Non
     # Indentation should produce newlines
     assert "\n" in content
     assert '    "id":' in content
+
+
+def test_write_json_failure_preserves_existing_file(
+    sample_frame: ArFrame, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_file = tmp_path / "output.json"
+    original = '{"status":"complete"}'
+    output_file.write_text(original, encoding="utf-8")
+
+    def fail_after_partial_write(_data, dst, **_kwargs):
+        dst.write('{"partial":')
+        raise RuntimeError("simulated write failure")
+
+    monkeypatch.setattr(ar_io.json, "dump", fail_after_partial_write)
+
+    with pytest.raises(RuntimeError, match="simulated write failure"):
+        ar.write_json(sample_frame, output_file)
+
+    assert output_file.read_text(encoding="utf-8") == original
+    assert not list(tmp_path.glob(f".{output_file.name}.*.tmp"))
 
 
 def test_write_json_invalid_frame(tmp_path: pathlib.Path) -> None:
