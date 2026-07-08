@@ -2264,6 +2264,91 @@ def _is_null_mapping_key(value):
     return bool(pd.isna(value))
 
 
+def _apply_value_mapping_to_series(
+    series: pd.Series,
+    mapping: Mapping[Any, Any],
+    *,
+    operation: str,
+) -> pd.Series:
+    """Apply scalar value mappings to a Series, including null-like keys."""
+    null_key_present = False
+    null_replacement = None
+    normalized_mapping = {}
+
+    for k, v in mapping.items():
+        if _is_null_mapping_key(k):
+            null_key_present = True
+            null_replacement = v
+        elif is_scalar(k) and not isinstance(
+            k, (tuple, list, np.ndarray, pd.Series, pd.Index)
+        ):
+            normalized_mapping[k] = v
+        else:
+            raise TypeError(
+                f"{operation}() does not support non-scalar mapping keys. "
+                f"Got key {k!r} of type '{type(k).__name__}'. "
+                f"Only scalar values (str, int, float, bool) and null-like keys "
+                f"(None, float('nan'), pd.NA, pd.NaT) are supported."
+            )
+
+    original_null_mask = series.isna() if null_key_present else None
+    result = series.replace(normalized_mapping) if normalized_mapping else series
+    if null_key_present:
+        result = result.where(~original_null_mask, null_replacement)
+    return result
+
+
+def map_values(
+    frame: ArFrame | pd.DataFrame,
+    mapping: Mapping[Any, Any],
+    subset: Sequence[str] | None = None,
+) -> ArFrame | pd.DataFrame:
+    """Map selected column values through a user-provided mapping.
+
+    Values not present in ``mapping`` are preserved. When ``subset`` is
+    provided, only those columns are transformed; otherwise the mapping is
+    applied to all columns.
+    """
+    frame, is_arframe = _validate_frame(frame, allow_pandas=True)
+    mapping = _validate_mapping(
+        mapping,
+        argument_name="mapping",
+        allow_empty=False,
+        non_mapping_message=(
+            "mapping must be a dict-like mapping of {old_value: new_value}, "
+            f"not {type(mapping).__name__}."
+        ),
+    )
+
+    df = to_pandas(frame) if is_arframe else frame.copy(deep=False)
+    if subset is None:
+        target_columns = list(df.columns)
+    else:
+        target_columns = _validate_existing_column_sequence(
+            subset,
+            available_columns=df.columns,
+            argument_name="subset",
+            reject_duplicates=True,
+            missing_error=ValueError,
+            missing_message=lambda missing, available: (
+                f"Unknown columns in subset: {missing}. Available: {available}"
+            ),
+        )
+
+    if not target_columns:
+        return frame if is_arframe else df
+
+    result_df = df.copy(deep=False)
+    for column in target_columns:
+        result_df[column] = _apply_value_mapping_to_series(
+            result_df[column],
+            mapping,
+            operation="map_values",
+        )
+
+    return from_pandas(result_df) if is_arframe else result_df
+
+
 def replace_values(
     frame: ArFrame | pd.DataFrame,
     mapping: dict,
@@ -2328,50 +2413,19 @@ def replace_values(
                 f"Column '{column}' not found. Available columns: {available}"
             )
 
-    # Normalize mapping and separate null-key handling because NaN != NaN
-    null_key_present = False
-    null_replacement = None
-    normalized_mapping = {}
-
-    for k, v in mapping.items():
-        # Handle scalar null-like keys safely without evaluating
-        # tuple/list/array-like objects in boolean context.
-        if _is_null_mapping_key(k):
-            null_key_present = True
-            null_replacement = v
-        # Exclude tuple/list/ndarray/series/index keys which pandas.replace
-        # does not support and can raise confusing errors (e.g. operand
-        # length mismatch). Treat strings and true scalars as valid keys.
-        elif is_scalar(k) and not isinstance(
-            k, (tuple, list, np.ndarray, pd.Series, pd.Index)
-        ):
-            normalized_mapping[k] = v
-        else:
-            raise TypeError(
-                f"replace_values() does not support non-scalar mapping keys. "
-                f"Got key {k!r} of type '{type(k).__name__}'. "
-                f"Only scalar values (str, int, float, bool) and null-like keys "
-                f"(None, float('nan'), pd.NA, pd.NaT) are supported."
-            )
-
     if column:
-        s = df[column]
-        original_null_mask = s.isna() if null_key_present else None
-        if normalized_mapping:
-            s = s.replace(normalized_mapping)
-        if null_key_present:
-            # Replace only values that were already null before replacement so
-            # null-valued mapping results remain real nulls.
-            s = s.where(~original_null_mask, null_replacement)
-        df[column] = s
+        df[column] = _apply_value_mapping_to_series(
+            df[column],
+            mapping,
+            operation="replace_values",
+        )
     else:
-        original_null_mask = df.isna() if null_key_present else None
-        if normalized_mapping:
-            df = df.replace(normalized_mapping)
-        if null_key_present:
-            # Replace only values that were already null before replacement so
-            # null-valued mapping results remain real nulls.
-            df = df.where(~original_null_mask, null_replacement)
+        for current_column in df.columns:
+            df[current_column] = _apply_value_mapping_to_series(
+                df[current_column],
+                mapping,
+                operation="replace_values",
+            )
 
     return from_pandas(df) if is_arframe else df
 
