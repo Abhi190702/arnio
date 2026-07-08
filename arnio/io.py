@@ -18,8 +18,7 @@ import urllib.request
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
-from typing import Callable, cast
+from typing import Any, NoReturn, cast
 
 from ._core import (
     _CsvChunkReader,
@@ -356,11 +355,33 @@ _URL_FETCH_CHUNK_SIZE = 65536  # 64 KiB per streaming read
 _URL_MAX_RESPONSE_SIZE = int(os.environ.get("ARNIO_REMOTE_MAX_SIZE", 500 * 1024 * 1024))
 
 
-def _fetch_url_to_tempfile(
-    url: str,
-    limit_rows: int | None = None,
-    max_response_size: int | None = None,
-) -> str:
+class _NoHttpRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject HTTP redirects instead of following them implicitly."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> NoReturn:
+        raise urllib.error.HTTPError(
+            req.full_url,
+            code,
+            f"redirects are not allowed for CSV URL fetches: {newurl}",
+            headers,
+            fp,
+        )
+
+
+def _open_url_without_redirects(req: urllib.request.Request, timeout: float) -> Any:
+    opener = urllib.request.build_opener(_NoHttpRedirectHandler())
+    return opener.open(req, timeout=timeout)
+
+
+def _fetch_url_to_tempfile(url: str) -> str:
     """Fetch an HTTP/HTTPS URL and write its content to a UTF-8 temp file.
 
     Parameters
@@ -403,7 +424,7 @@ def _fetch_url_to_tempfile(
             headers={"User-Agent": "arnio/read_csv"},
         )
         try:
-            response = urllib.request.urlopen(req, timeout=_URL_FETCH_TIMEOUT)  # nosec B310
+            response = _open_url_without_redirects(req, timeout=_URL_FETCH_TIMEOUT)
         except urllib.error.HTTPError as exc:
             raise RemoteReadError(
                 f"HTTP {exc.code} fetching CSV URL {url!r}: {exc.reason}",
@@ -848,6 +869,24 @@ def _enrich_row_width_error(exc: Exception, delimiter: str) -> CsvReadError:
         return CsvReadError(enriched)
     # Not a row-width message — preserve the original text exactly.
     return CsvReadError(msg)
+
+
+def _enrich_csv_runtime_error(
+    exc: RuntimeError, path: str, encoding: str, delimiter: str
+) -> CsvReadError:
+    """Add path/encoding context to selected native CSV errors."""
+
+    msg = str(exc)
+    # Native CSV parsing currently reports malformed UTF-8 using the message below.
+    # We match it here so we can attach file path and encoding context at the Python API boundary.
+    # If the native wording changes, this enrichment may need updating.
+
+    if "Invalid UTF-8 sequence encountered" in msg:
+        return CsvReadError(
+            f"Could not read CSV file {path} using encoding {encoding}: {msg}"
+        )
+
+    return _enrich_row_width_error(exc, delimiter)
 
 
 # Candidate delimiters to probe during delimiter-mismatch detection.
@@ -2361,13 +2400,13 @@ def write_json(
     path_lower = path.lower()
     if not path_lower.endswith(".json"):
         raise ValueError(
-            f"Unsupported file format: {path}. " "write_json only supports .json files."
+            f"Unsupported file format: {path}. write_json only supports .json files."
         )
 
     valid_orients = ("records", "list", "split")
     if orient not in valid_orients:
         raise ValueError(
-            f"Unsupported orient: {orient!r}. " f"Valid options are: {valid_orients}"
+            f"Unsupported orient: {orient!r}. Valid options are: {valid_orients}"
         )
 
     if indent is not None:

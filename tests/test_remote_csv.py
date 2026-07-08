@@ -62,6 +62,11 @@ class _SingleFileHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
+        if self.path == "/redirect.csv":
+            self.send_response(302)
+            self.send_header("Location", "/data.csv")
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/csv; charset=utf-8")
         self.send_header("Content-Length", str(len(self.csv_bytes)))
@@ -223,6 +228,15 @@ class TestFetchUrlToTempfile:
         with pytest.raises(RemoteReadError, match="404"):
             _fetch_url_to_tempfile(url)
 
+    def test_redirect_raises_remote_read_error(self, http_server):
+        url = f"{http_server}/redirect.csv"
+        with pytest.raises(RemoteReadError) as exc_info:
+            _fetch_url_to_tempfile(url)
+
+        assert exc_info.value.url == url
+        assert exc_info.value.status_code == 302
+        assert "redirects are not allowed" in str(exc_info.value)
+
     def test_unreachable_host_raises_remote_read_error(self):
         url = "http://127.0.0.1:1"  # port 1 — always refused
         with pytest.raises(RemoteReadError) as exc_info:
@@ -286,9 +300,8 @@ class TestFetchUrlToTempfileIncrementalDecoding:
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("arnio.io.urllib.request.urlopen", return_value=mock_response):
-            with patch("arnio.io.urllib.request.Request", return_value=MagicMock()):
-                path = _fetch_url_to_tempfile("http://example.com/data.csv")
+        with patch("arnio.io._open_url_without_redirects", return_value=mock_response):
+            path = _fetch_url_to_tempfile("http://example.com/data.csv")
         try:
             content = open(path, encoding="utf-8").read()
             assert "\u20ac" in content, "Euro sign must survive the split-chunk decode"
@@ -311,9 +324,8 @@ class TestFetchUrlToTempfileIncrementalDecoding:
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("arnio.io.urllib.request.urlopen", return_value=mock_response):
-            with patch("arnio.io.urllib.request.Request", return_value=MagicMock()):
-                path = _fetch_url_to_tempfile("http://example.com/data.csv")
+        with patch("arnio.io._open_url_without_redirects", return_value=mock_response):
+            path = _fetch_url_to_tempfile("http://example.com/data.csv")
         try:
             content = open(path, encoding="utf-8").read()
             assert "\U0001d11e" in content
@@ -329,10 +341,9 @@ class TestFetchUrlToTempfileIncrementalDecoding:
         mock_response.__enter__ = lambda s: s
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("arnio.io.urllib.request.urlopen", return_value=mock_response):
-            with patch("arnio.io.urllib.request.Request", return_value=MagicMock()):
-                with pytest.raises(RemoteReadError, match="not valid UTF-8"):
-                    _fetch_url_to_tempfile("http://example.com/data.csv")
+        with patch("arnio.io._open_url_without_redirects", return_value=mock_response):
+            with pytest.raises(RemoteReadError, match="not valid UTF-8"):
+                _fetch_url_to_tempfile("http://example.com/data.csv")
 
 
 # ---------------------------------------------------------------------------
