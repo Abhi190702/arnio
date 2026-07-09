@@ -780,10 +780,11 @@ They follow a simple workflow:
 
 ### 🔹 Interoperability Examples
 
+```markdown
 - **Arnio + pandas**
   Clean and normalize messy tabular data using Arnio, then analyze it using pandas.
   Run:
-```bash
+  ```bash
   python examples/arnio_with_pandas.py
 ```
 
