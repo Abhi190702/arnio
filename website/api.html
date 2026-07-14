@@ -222,6 +222,12 @@ result = schema.validate(frame)</code></pre></div></div>
                 <td><code>pattern</code> is a regex applied to every non-null value. <code>allowed</code> accepts a set, list, or tuple — not a bare string.</td>
               </tr>
               <tr>
+                <td><code>Choice(...)</code></td>
+                <td>String</td>
+                <td><code>nullable=True</code>, <code>unique=False</code>, <code>severity="error"</code>, <code>required_if=None</code></td>
+                <td>Restricts a column to an explicit non-empty set of allowed values, passed positionally as a list, tuple, or set. Raises <code>ValueError</code> if empty, <code>TypeError</code> for a bare string.</td>
+              </tr>
+              <tr>
                 <td><code>Bool(...)</code></td>
                 <td>Boolean</td>
                 <td><code>nullable=True</code>, <code>severity="error"</code>, <code>required_if=None</code></td>

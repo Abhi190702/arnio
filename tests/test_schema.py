@@ -5161,3 +5161,77 @@ class TestSemanticValidatorJSONRoundTrip:
         frame = _frame({"col": [invalid_values[semantic]]})
         result = validate(frame, restored)
         assert not result.passed
+
+
+class TestChoice:
+    def test_choice_valid_values_pass(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive", "pending"])})
+        frame = ar.from_dict({"status": ["active", "pending", "inactive"]})
+        result = schema.validate(frame)
+        assert result.passed
+
+    def test_choice_invalid_value_fails(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"])})
+        frame = ar.from_dict({"status": ["active", "unknown"]})
+        result = schema.validate(frame)
+        assert not result.passed
+        assert any(issue.rule == "allowed" for issue in result.issues)
+
+    def test_choice_reports_correct_row_index(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"])})
+        frame = ar.from_dict({"status": ["active", "bogus", "inactive"]})
+        result = schema.validate(frame)
+        bad_issue = next(i for i in result.issues if i.rule == "allowed")
+        assert bad_issue.row_index == 2  # 1-indexed, second row
+
+    def test_choice_empty_allowed_raises_value_error(self):
+        with pytest.raises(ValueError, match="allowed must contain at least one value"):
+            ar.Choice([])
+
+    def test_choice_bare_string_raises_type_error(self):
+        with pytest.raises(TypeError, match="not a bare string"):
+            ar.Choice("active")
+
+    def test_choice_invalid_container_type_raises_type_error(self):
+        with pytest.raises(TypeError):
+            ar.Choice(123)
+
+    def test_choice_accepts_set_list_tuple(self):
+        for allowed in (["a", "b"], ("a", "b"), {"a", "b"}):
+            field = ar.Choice(allowed)
+            assert field.allowed == {"a", "b"}
+
+    def test_choice_nullable_default_allows_nulls(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"])})
+        frame = ar.from_dict({"status": ["active", None]})
+        result = schema.validate(frame)
+        assert result.passed
+
+    def test_choice_non_nullable_rejects_nulls(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"], nullable=False)})
+        frame = ar.from_dict({"status": ["active", None]})
+        result = schema.validate(frame)
+        assert not result.passed
+        assert any(issue.rule == "nullable" for issue in result.issues)
+
+    def test_choice_unique_flag_detects_duplicates(self):
+        schema = ar.Schema({"status": ar.Choice(["active", "inactive"], unique=True)})
+        frame = ar.from_dict({"status": ["active", "active"]})
+        result = schema.validate(frame)
+        assert not result.passed
+        assert any(issue.rule == "unique" for issue in result.issues)
+
+    def test_choice_severity_warning_does_not_fail_validation(self):
+        schema = ar.Schema(
+            {"status": ar.Choice(["active", "inactive"], severity="warning")}
+        )
+        frame = ar.from_dict({"status": ["active", "unknown"]})
+        result = schema.validate(frame)
+        assert result.passed  # only warnings, no errors
+        assert any(issue.severity == "warning" for issue in result.issues)
+
+    def test_choice_all_values_valid_zero_issues(self):
+        schema = ar.Schema({"status": ar.Choice(["x", "y", "z"])})
+        frame = ar.from_dict({"status": ["x", "y", "z", "x"]})
+        result = schema.validate(frame)
+        assert result.issue_count == 0
