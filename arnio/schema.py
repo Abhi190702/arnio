@@ -3662,9 +3662,7 @@ def Choice(
     ... })
     """
     if isinstance(allowed, (str, bytes)):
-        raise TypeError(
-            "allowed must be a sequence of values, not a bare string"
-        )
+        raise TypeError("allowed must be a sequence of values, not a bare string")
 
     if not isinstance(allowed, (set, list, tuple)):
         raise TypeError(

@@ -1,4 +1,3 @@
-
 """
 Tests for ArFrame.preview()
 """
@@ -395,6 +394,7 @@ def test_select_columns_native_path_avoids_pandas_roundtrip(monkeypatch):
 
     assert list(df.columns) == ["salary", "name"]
 
+
 def test_select_columns_null_nan_handling():
     df = pd.DataFrame(
         {
@@ -669,7 +669,6 @@ class TestArFrame:
         csv_path = tmp_path / "empty.csv"
         csv_path.write_text("name,age\n")  # Header only, no data rows
 
-        
         frame = ar.read_csv(str(csv_path))
         assert frame.is_empty is True
         assert len(frame) == 0
@@ -1866,7 +1865,8 @@ def test_astype_rejects_multielement_numpy_array():
     # 3. Multi-element NumPy array check
     with pytest.raises(TypeError, match="dtype must be a string"):
         frame.astype(np.array([1, 2]))
-        
+
+
 # ── is_empty ──────────────────────────────────────────────────────────────────
 
 
@@ -1877,6 +1877,7 @@ def test_is_empty_returns_false_when_frame_has_rows():
 
 def test_is_empty_returns_true_for_empty_frame():
     import pandas as pd
+
     df = pd.DataFrame(columns=["name", "age"])
     frame = ar.from_pandas(df)
     assert frame.is_empty is True

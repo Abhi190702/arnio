@@ -333,7 +333,7 @@ class ArFrame:
             Mapping of column names to their data types.
         """
         return self._frame.dtypes()
-    
+
     @property
     def is_empty(self) -> bool:
         """Check if frame has zero rows.
