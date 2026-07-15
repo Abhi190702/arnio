@@ -1,89 +1,93 @@
-"""
-arnio.exceptions
-Custom exceptions for the Arnio library.
+"""arnio.exceptions — Exception hierarchy for Arnio.
+
+Design rules:
+    - Validation NEVER raises on bad data — it returns structured results.
+    - Usage errors (wrong types, invalid schemas, unsupported data) DO raise.
+    - Every exception message explains what went wrong, why, and how to fix it.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .schema import ValidationResult
+    from arnio.validate._result import Issue
 
 
 class ArnioError(Exception):
     """Base exception for all Arnio errors."""
 
-    pass
 
+class SchemaError(ArnioError):
+    """Raised when a schema definition is invalid.
 
-class UnknownStepError(ArnioError):
-    """Raised when a pipeline step name is not registered."""
-
-    def __init__(self, name: str, available: list[str]):
-        super().__init__(
-            f"Unknown pipeline step: '{name}'.\n"
-            f"Available steps: {sorted(available)}\n"
-            f"To add a custom step: ar.register_step('{name}', your_fn)"
-        )
-
-
-class CsvReadError(ArnioError):
-    """Raised when a CSV file cannot be read."""
-
-    pass
-
-
-class JsonlReadError(ArnioError):
-    """Raised when a JSON Lines file cannot be read or contains malformed data."""
-
-    pass
-
-
-class RemoteReadError(ArnioError):
-    """Raised when a remote CSV URL cannot be fetched or the response is invalid.
-
-    Attributes
-    ----------
-    url : str
-        The URL that failed.
-    status_code : int or None
-        HTTP status code from the response, or ``None`` for network-level
-        failures (DNS, timeout, connection refused, etc.).
+    Examples of triggers:
+        - Field type used with incompatible parameters
+        - min > max in a numeric field
+        - Invalid regex pattern
+        - Unknown field type in deserialized schema
     """
 
-    def __init__(self, message: str, *, url: str = "", status_code: int | None = None):
-        self.url = url
-        self.status_code = status_code
-        super().__init__(message)
 
+class AdapterError(ArnioError):
+    """Raised when the input data type is not supported.
 
-class TypeCastError(ArnioError):
-    """Raised when cast_types encounters an incompatible type."""
+    This means Arnio could not find an adapter for the given data.
+    Includes a message showing what was received and what types are supported.
+    """
 
-    pass
-
-
-class PipelineStepError(ArnioError):
-    """Raised when an execution error occurs inside a custom pipeline step."""
-
-    def __init__(self, step_name: str, orig_err: Exception):
-        self.step_name = step_name
-        self.orig_err = orig_err
+    def __init__(self, data: Any) -> None:
+        type_name = type(data).__qualname__
         super().__init__(
-            f"Error occurred during custom pipeline step '{step_name}': {orig_err}"
+            f"Unsupported data type: {type_name!r}.\n"
+            f"Arnio supports: pandas DataFrame, list[dict], dict[str, list].\n"
+            f"To add support for custom types, implement the DataFrameAdapter protocol."
         )
 
 
-class SchemaValidationError(ArnioError):
-    """Raised when a dataframe fails schema validation."""
+class ValidationError(ArnioError):
+    """Raised by ``ar.check()`` when data fails validation.
 
-    def __init__(self, message: str, result: ValidationResult = None):
-        self.result = result
+    Carries structured issue data so callers can inspect failures
+    programmatically in CI or assertion contexts.
+
+    Attributes:
+        issues: List of validation issues that caused the failure.
+    """
+
+    def __init__(self, message: str, *, issues: list[Issue] | None = None) -> None:
+        self.issues: list[Issue] = issues or []
         super().__init__(message)
 
 
-class PipelineSerializationError(ArnioError):
-    """Raised when a declarative pipeline cannot be saved or loaded."""
+class CleaningError(ArnioError):
+    """Raised when a cleaning step encounters an unrecoverable error.
 
-    pass
+    Attributes:
+        step_name: The name of the cleaning step that failed.
+    """
+
+    def __init__(self, step_name: str, detail: str) -> None:
+        self.step_name = step_name
+        super().__init__(
+            f"Cleaning step {step_name!r} failed: {detail}"
+        )
+
+
+class PipelineError(ArnioError):
+    """Raised when a pipeline encounters an error during execution.
+
+    Attributes:
+        step_name: The name of the step that failed.
+        step_index: The 0-based index of the failing step in the pipeline.
+    """
+
+    def __init__(
+        self, step_name: str, step_index: int, cause: Exception
+    ) -> None:
+        self.step_name = step_name
+        self.step_index = step_index
+        self.__cause__ = cause
+        super().__init__(
+            f"Pipeline failed at step {step_index} ({step_name!r}): {cause}"
+        )

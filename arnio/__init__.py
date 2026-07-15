@@ -1,255 +1,131 @@
+"""arnio — Data trust for Python.
+
+Validate, clean, and profile DataFrames before everything else.
+
+    import arnio as ar
+
+    result = ar.validate(df, schema)
+    report = ar.profile(df)
+    cleaned = ar.clean(df, ["strip_whitespace", "drop_duplicates"])
 """
-arnio — Fast CSV processing and data cleaning companion for pandas.
 
-import arnio as ar
-"""
+from arnio._version import __version__ as __version__
 
-from ._version import __version__ as __version__
-from .cleaning import (
-    CastFailure,
-    CastReport,
-    cast_types,
-    clean,
-    clean_column_names,
-    clip_numeric,
-    coalesce_columns,
-    combine_columns,
-    drop_columns,
-    drop_columns_matching,
-    drop_constant_columns,
-    drop_duplicates,
-    drop_empty_columns,
-    drop_nulls,
-    fill_nulls,
-    filter_rows,
-    find_fuzzy_duplicates,
-    keep_rows_with_nulls,
-    normalize_case,
-    normalize_minmax,
-    normalize_unicode,
-    normalize_whitespace,
-    parse_bool_strings,
-    rename_columns,
-    rename_columns_matching,
-    replace_values,
-    round_numeric_columns,
-    safe_divide_columns,
-    select_columns,
-    slugify_column_names,
-    standardize_missing_tokens,
-    strip_whitespace,
-    trim_column_names,
-    validate_columns_exist,
-    winsorize_outliers,
-)
-from .convert import from_dict, from_pandas, from_polars, to_arrow, to_pandas, to_polars
-from .encode_categorical import encode_categorical
-from .exceptions import (
-    ArnioError,
-    CsvReadError,
-    JsonlReadError,
-    PipelineSerializationError,
-    PipelineStepError,
-    RemoteReadError,
-    SchemaValidationError,
-    TypeCastError,
-    UnknownStepError,
-)
-from .frame import ArFrame, ColumnSummary
-from .integrations import ArnioPandasAccessor, register_duckdb
-from .io import (
-    read_csv,
-    read_csv_chunked,
-    read_jsonl,
-    read_jsonl_chunked,
-    read_parquet,
-    scan_csv,
-    sniff_delimiter,
-    write_csv,
-    write_json,
-    write_parquet,
-)
-from .pipeline import (
-    LineageReport,
-    PipelineContext,
-    get_builtin_step_signatures,
-    list_steps,
-    load_pipeline,
-    pipeline,
-    register_step,
-    reset_steps,
-    save_pipeline,
-    unregister_step,
-)
-from .quality import (
-    CleanExplanation,
-    CleaningSuggestion,
-    CleanStepRecord,
-    ColumnProfile,
-    DataQualityReport,
-    ProfileComparison,
-    QualityGateIssue,
-    QualityGateResult,
-    auto_clean,
-    check_quality_gates,
-    compare_profiles,
-    profile,
-    suggest_cleaning,
-)
-from .schema import (
-    URL,
-    Bool,
-    CountryCode,
-    CurrencyCode,
-    Custom,
-    Date,
-    DateTime,
-    Email,
-    Field,
-    Float64,
-    Int64,
-    LanguageCode,
-    PhoneNumber,
-    Regex,
-    Schema,
-    SchemaDiff,
-    SchemaDiffEntry,
-    String,
-    TimeZone,
-    ValidationIssue,
-    ValidationResult,
-    diff_schema,
-    register_validator,
-    validate,
-)
-from .schema_export import schema_from_yaml, schema_to_dict, schema_to_yaml
+# -- Functions (primary API surface) ----------------------------------------
 
-from_records = ArFrame.from_records
+from arnio.validate import validate as validate
+from arnio.profile import profile as profile
+from arnio.profile import suggest as suggest
+from arnio.clean import clean as clean
+from arnio.gates import check as check
+from arnio.schema._inference import infer_schema as infer_schema
+from arnio.schema._diff import diff_schemas as diff_schemas
+
+# -- Classes ----------------------------------------------------------------
+
+from arnio.schema import Schema as Schema
+from arnio.clean import Pipeline as Pipeline
+from arnio.validate import ValidationResult as ValidationResult
+from arnio.validate import Issue as Issue
+from arnio.profile import ProfileReport as ProfileReport
+from arnio.profile import ColumnProfile as ColumnProfile
+
+# -- Field types ------------------------------------------------------------
+
+from arnio.schema import Field as Field
+from arnio.schema import Int as Int
+from arnio.schema import Float as Float
+from arnio.schema import String as String
+from arnio.schema import Bool as Bool
+from arnio.schema import Date as Date
+from arnio.schema import DateTime as DateTime
+from arnio.schema import Email as Email
+from arnio.schema import URL as URL
+from arnio.schema import PhoneNumber as PhoneNumber
+from arnio.schema import IPAddress as IPAddress
+from arnio.schema import UUID as UUID
+from arnio.schema import Regex as Regex
+
+# -- Schema operations ------------------------------------------------------
+
+from arnio.schema._diff import SchemaDiff as SchemaDiff
+from arnio.schema._diff import FieldDiff as FieldDiff
+from arnio.schema._serde import schema_to_dict as schema_to_dict
+from arnio.schema._serde import schema_from_dict as schema_from_dict
+from arnio.schema._serde import schema_to_json as schema_to_json
+from arnio.schema._serde import schema_from_json as schema_from_json
+from arnio.schema._serde import schema_to_yaml as schema_to_yaml
+from arnio.schema._serde import schema_from_yaml as schema_from_yaml
+
+# -- Cleaning step registration ---------------------------------------------
+
+from arnio.clean._registry import register_step as register_step
+from arnio.clean._registry import unregister_step as unregister_step
+from arnio.clean._registry import list_steps as list_steps
+
+# -- Exceptions -------------------------------------------------------------
+
+from arnio.exceptions import ArnioError as ArnioError
+from arnio.exceptions import SchemaError as SchemaError
+from arnio.exceptions import AdapterError as AdapterError
+from arnio.exceptions import ValidationError as ValidationError
+from arnio.exceptions import CleaningError as CleaningError
+from arnio.exceptions import PipelineError as PipelineError
+
+# -- Integrations (side-effect: registers pandas accessor) ------------------
+
+import arnio.integrations  # noqa: F401
 
 __all__ = [
-    # Core class
-    "ArFrame",
-    "ColumnSummary",
-    # I/O
-    "read_csv",
-    "read_csv_chunked",
-    "read_jsonl",
-    "read_jsonl_chunked",
-    "write_csv",
-    "write_json",
-    "read_parquet",
-    "write_parquet",
-    "scan_csv",
-    "sniff_delimiter",
-    # Cleaning
-    "drop_nulls",
-    "drop_columns",
-    "select_columns",
-    "keep_rows_with_nulls",
-    "fill_nulls",
-    "validate_columns_exist",
-    "filter_rows",
-    "replace_values",
-    "normalize_whitespace",
-    "drop_duplicates",
-    "find_fuzzy_duplicates",
-    "drop_constant_columns",
-    "drop_empty_columns",
-    "clean_column_names",
-    "clip_numeric",
-    "winsorize_outliers",
-    "normalize_minmax",
-    "coalesce_columns",
-    "combine_columns",
-    "rename_columns_matching",
-    "drop_columns_matching",
-    "strip_whitespace",
-    "parse_bool_strings",
-    "normalize_case",
-    "rename_columns",
-    "round_numeric_columns",
-    "cast_types",
-    "CastFailure",
-    "CastReport",
-    "clean",
-    "safe_divide_columns",
-    "slugify_column_names",
-    "trim_column_names",
-    "standardize_missing_tokens",
-    "CleaningSuggestion",
-    # Conversion
-    "to_pandas",
-    "to_arrow",
-    "to_polars",
-    "from_pandas",
-    "from_polars",
-    "from_records",
-    "from_dict",
-    # Integrations
-    "ArnioPandasAccessor",
-    "register_duckdb",
-    # Pipeline
-    "pipeline",
-    "register_step",
-    "unregister_step",
-    "get_builtin_step_signatures",
-    "list_steps",
-    "PipelineContext",
-    "LineageReport",
-    "reset_steps",
-    # Data quality
-    "profile",
-    "compare_profiles",
-    "check_quality_gates",
-    "suggest_cleaning",
-    "auto_clean",
-    "ColumnProfile",
-    "DataQualityReport",
-    "CleanStepRecord",
-    "CleanExplanation",
-    "ProfileComparison",
-    "QualityGateIssue",
-    "QualityGateResult",
-    # Schema validation
-    "Schema",
-    "SchemaDiff",
-    "SchemaDiffEntry",
-    "Field",
-    "ValidationIssue",
-    "ValidationResult",
+    # Version
+    "__version__",
+    # Functions
     "validate",
-    "diff_schema",
-    "Int64",
-    "Float64",
+    "profile",
+    "clean",
+    "suggest",
+    "check",
+    "infer_schema",
+    "diff_schemas",
+    # Classes
+    "Schema",
+    "Pipeline",
+    "ValidationResult",
+    "Issue",
+    "ProfileReport",
+    "ColumnProfile",
+    "SchemaDiff",
+    "FieldDiff",
+    # Field types
+    "Field",
+    "Int",
+    "Float",
     "String",
-    "CountryCode",
-    "CurrencyCode",
-    "LanguageCode",
-    "TimeZone",
     "Bool",
+    "Date",
+    "DateTime",
     "Email",
     "URL",
     "PhoneNumber",
-    "DateTime",
-    # Exceptions
-    "UnknownStepError",
-    "ArnioError",
-    "CsvReadError",
-    "JsonlReadError",
-    "RemoteReadError",
-    "TypeCastError",
-    "PipelineStepError",
-    "SchemaValidationError",
-    "normalize_unicode",
+    "IPAddress",
+    "UUID",
     "Regex",
-    "Custom",
-    "register_validator",
-    "Date",
-    "schema_from_yaml",
+    # Schema operations
     "schema_to_dict",
+    "schema_from_dict",
+    "schema_to_json",
+    "schema_from_json",
     "schema_to_yaml",
-    "save_pipeline",
-    "load_pipeline",
-    "PipelineSerializationError",
-    "encode_categorical",
+    "schema_from_yaml",
+    # Step registration
+    "register_step",
+    "unregister_step",
+    "list_steps",
+    # Exceptions
+    "ArnioError",
+    "SchemaError",
+    "AdapterError",
+    "ValidationError",
+    "CleaningError",
+    "PipelineError",
 ]

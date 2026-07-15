@@ -1,54 +1,27 @@
 # Security Policy
 
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| 2.0.x   | ✅         |
+| < 2.0   | ❌         |
+
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Arnio, please report it responsibly by emailing:
+If you discover a security vulnerability, please report it privately:
 
-**anishrajyadav97@gmail.com**
+1. **Do NOT** open a public issue
+2. Email: anishrajyadav97@gmail.com
+3. Include: description, steps to reproduce, potential impact
 
-Subject line:
+We will respond within 48 hours and provide a fix timeline.
 
-```text
-ARNIO SECURITY
-```
+## Security Considerations
 
-Please include:
-- Description of the issue
-- Steps to reproduce
-- Potential impact
-- Affected files/components
-- Proof of concept (if available)
+Arnio processes user-provided data and schemas. Key security measures:
 
-Please do not publicly disclose security vulnerabilities until they have been reviewed and addressed.
-
----
-
-## Scope
-
-The following security-related issues are considered in scope for Arnio:
-
-- CSV parsing crashes or malformed CSV handling
-- File path traversal vulnerabilities in `read_csv` or `scan_csv`
-- Memory exhaustion or denial-of-service through crafted inputs
-- Unsafe file handling or unintended file access
-- Crashes caused by malformed datasets
-- Security issues affecting CLI/API behavior
-
----
-
-## Out of Scope
-
-The following are generally considered out of scope:
-
-- Feature requests
-- Performance optimizations without security impact
-- Style or formatting issues
-- Documentation typos
-- Non-security-related crashes
-- Third-party dependency vulnerabilities without direct exploitability in Arnio
-
----
-
-## Responsible Disclosure
-
-We appreciate responsible disclosure and will review all valid reports as quickly as possible.
+- **Regex patterns**: Validated against catastrophic backtracking
+- **No code execution**: Schemas are data, not code
+- **No network access**: Arnio never makes network requests
+- **No file I/O**: Arnio does not read or write files (schemas are serialized to strings)

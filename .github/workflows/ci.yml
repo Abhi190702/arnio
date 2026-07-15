@@ -2,224 +2,47 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
-
+    branches: [main, v2]
   pull_request:
-    branches: [ "main" ]
-    paths:
-      - ".github/workflows/ci.yml"
-      - "arnio/**"
-      - "bindings/**"
-      - "cpp/**"
-      - "tests/**"
-      - "examples/**"
-      - "scripts/**"
-      - "pyproject.toml"
-      - "setup.py"
-      - "mypy.ini"
-      - "CMakeLists.txt"
-      - ".pre-commit-config.yaml"
-
-permissions:
-  contents: read
+    branches: [main, v2]
 
 jobs:
-  dependency-review:
-    name: Dependency Review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: moderate
-          comment-summary-in-pr: always
-
-  lint:
-    name: Lint (Black, Ruff, clang-format)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-          cache: 'pip'
-
-      - name: Install lint dependencies
-        run: pip install "black>=24.0" "ruff>=0.4.0" "mypy>=1.0,<2.0" pandas-stubs types-PyYAML types-setuptools
-
-      - name: Documentation UTF-8 check
-        run: python scripts/check_docs_utf8.py
-
-      - name: Black (check-only)
-        run: black --check --diff .
-
-      - name: Ruff (check-only)
-        run: ruff check . --extend-exclude "*.ipynb"
-
-      - name: mypy (check-only)
-        run: mypy --config-file mypy.ini
-
-      - name: Install clang-format
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang-format-17
-
-      - name: clang-format (check-only)
-        run: |
-          find cpp/ bindings/ -type f \( -name '*.cpp' -o -name '*.h' \) \
-            | xargs clang-format-17 --dry-run --Werror
-
-  cpp_tests:
-    name: C++ Native Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            shell: bash
-          - os: windows-latest
-            shell: bash
-          - os: macos-latest
-            shell: bash
-    defaults:
-      run:
-        shell: ${{ matrix.shell }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install native build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pybind11 ninja
-
-      - name: Set up MSVC
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
-
-      - name: Configure CMake
-        run: |
-          cmake -S . -B build -GNinja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DARNIO_BUILD_CPP_TESTS=ON \
-            -DCMAKE_PREFIX_PATH="$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')"
-      - name: Build
-        run: cmake --build build --parallel
-      - name: Run C++ tests
-        run: ctest --test-dir build --output-on-failure
-
-  build_and_test:
-    name: Test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
-    needs: cpp_tests
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Upgrade pip and setuptools
-        run: python -m pip install --upgrade pip setuptools wheel
-
-      - name: Install dependencies and arnio
-        run: |
-          pip install -e .[dev]
-
-      - name: Run pytest
-        run: |
-          pytest tests/ -v --cov=arnio --cov-report=xml
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-  notebook_smoke:
-    name: Notebook Smoke Test
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-          cache: 'pip'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install -e .[dev]
-          pip install jupyter nbconvert ipykernel
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
-      - name: Execute notebooks
+      - name: Lint with ruff
         run: |
-          jupyter nbconvert \
-            --to notebook \
-            --execute \
-            --ExecutePreprocessor.timeout=300 \
-            examples/financial_csv_example.ipynb \
-            --output financial_csv_example.executed.ipynb
-          jupyter nbconvert \
-            --to notebook \
-            --execute \
-            --ExecutePreprocessor.timeout=300 \
-            examples/ignite_arnio_cleaning.ipynb \
-            --output ignite_arnio_cleaning.executed.ipynb
+          ruff check arnio/ tests/
 
-  sklearn_integration:
-    name: scikit-learn Integration Tests
-    needs: build_and_test
-    runs-on: ubuntu-latest
+      - name: Type check with mypy
+        run: |
+          mypy arnio/ --ignore-missing-imports
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Run tests
+        run: |
+          pytest tests/ -v --cov=arnio --cov-report=xml
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        uses: actions/upload-artifact@v4
         with:
-          python-version: "3.12"
-          cache: 'pip'
-
-      - name: Install dev + sklearn extras
-        run: pip install -e ".[dev,sklearn]"
-
-      - name: Run sklearn integration tests
-        run: pytest tests/test_sklearn.py -v --cov=arnio --cov-report=xml
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: coverage-report
+          path: coverage.xml

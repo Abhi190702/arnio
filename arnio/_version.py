@@ -1,45 +1,38 @@
 """Version resolution for arnio."""
 
+from __future__ import annotations
+
 import pathlib
 import re
 
 
 def _resolve_version() -> str:
-    """Resolve __version__ robustly for both installed and source-checkout imports.
+    """Resolve ``__version__`` for both installed and source-checkout imports.
 
-    Strategy
-    --------
-    1. Try importlib.metadata first (fast path for installed distributions).
-    2. If pyproject.toml exists next to the package directory, we are likely
-       in a source checkout — read the version from pyproject.toml directly
-       instead of trusting metadata that may belong to a different install.
-    3. Fall back to importlib.metadata when no pyproject.toml is present
-       (normal installed-package import).
-    4. Final fallback: "unknown".
+    Strategy:
+        1. Source checkout: read from ``pyproject.toml`` next to the package.
+        2. Installed package: use ``importlib.metadata``.
+        3. Fallback: ``"unknown"``.
     """
-    _here = pathlib.Path(__file__).resolve().parent
-    _pyproject = _here.parent / "pyproject.toml"
+    pyproject = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
 
-    # If pyproject.toml exists we are in a source checkout.
-    # Read the version directly so we never report a stale installed version.
-    if _pyproject.exists():
+    if pyproject.exists():
         try:
-            _text = _pyproject.read_text(encoding="utf-8")
-            _match = re.search(r'^\s*version\s*=\s*"([^"]+)"', _text, re.MULTILINE)
-            if _match:
-                return _match.group(1)
-        except Exception:
+            text = pyproject.read_text(encoding="utf-8")
+            match = re.search(r'^\s*version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+            if match:
+                return match.group(1)
+        except Exception:  # noqa: BLE001
             pass
 
-    # Normal installed-package import: trust importlib.metadata.
     try:
         from importlib.metadata import version
 
         return version("arnio")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     return "unknown"
 
 
-__version__ = _resolve_version()
+__version__: str = _resolve_version()

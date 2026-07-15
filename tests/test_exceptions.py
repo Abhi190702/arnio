@@ -1,217 +1,77 @@
-import pandas as pd
+"""Tests for arnio.exceptions."""
+
 import pytest
 
-import arnio as ar
+from arnio.exceptions import (
+    AdapterError,
+    ArnioError,
+    CleaningError,
+    PipelineError,
+    SchemaError,
+    ValidationError,
+)
 
 
-def test_public_exception_hierarchy():
-    public_exceptions = [
-        ar.ArnioError,
-        ar.CsvReadError,
-        ar.JsonlReadError,
-        ar.TypeCastError,
-        ar.UnknownStepError,
-        ar.SchemaValidationError,
-    ]
+class TestExceptionHierarchy:
+    """All exceptions inherit from ArnioError."""
 
-    for exc_type in public_exceptions:
-        assert issubclass(exc_type, Exception)
+    def test_schema_error_is_arnio_error(self):
+        assert issubclass(SchemaError, ArnioError)
 
-    for exc_type in public_exceptions[1:]:
-        assert issubclass(exc_type, ar.ArnioError)
+    def test_adapter_error_is_arnio_error(self):
+        assert issubclass(AdapterError, ArnioError)
 
+    def test_validation_error_is_arnio_error(self):
+        assert issubclass(ValidationError, ArnioError)
 
-def test_jsonl_read_error_for_malformed_json_has_clear_message(tmp_path):
-    bad_jsonl = tmp_path / "bad.jsonl"
-    bad_jsonl.write_text('{"key": "value"}\n{invalid json}\n')
+    def test_cleaning_error_is_arnio_error(self):
+        assert issubclass(CleaningError, ArnioError)
 
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(bad_jsonl))
+    def test_pipeline_error_is_arnio_error(self):
+        assert issubclass(PipelineError, ArnioError)
 
-    message = str(exc_info.value)
-    assert message
-    assert "invalid json" in message.lower()
-    assert "line 2" in message.lower()
 
+class TestAdapterError:
+    """AdapterError provides helpful messages."""
 
-def test_jsonl_read_error_for_non_dict_json_has_clear_message(tmp_path):
-    array_jsonl = tmp_path / "array.jsonl"
-    array_jsonl.write_text("[1, 2, 3]\n")
+    def test_message_includes_type(self):
+        err = AdapterError(42)
+        assert "int" in str(err)
 
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(array_jsonl))
+    def test_message_includes_supported_types(self):
+        err = AdapterError("string")
+        assert "pandas" in str(err).lower()
 
-    message = str(exc_info.value)
-    assert message
-    assert "expected a json object" in message.lower()
-    assert "line 1" in message.lower()
 
+class TestValidationError:
+    """ValidationError carries structured issues."""
 
-def test_csv_read_error_for_missing_file_has_clear_message(tmp_path):
-    missing_path = tmp_path / "missing.csv"
+    def test_empty_issues_by_default(self):
+        err = ValidationError("test")
+        assert err.issues == []
 
-    with pytest.raises(ar.CsvReadError) as exc_info:
-        ar.read_csv(str(missing_path))
+    def test_issues_attached(self):
+        from arnio.validate._result import Issue
+        issues = [Issue(column="x", rule="test", message="bad")]
+        err = ValidationError("test", issues=issues)
+        assert len(err.issues) == 1
 
-    message = str(exc_info.value)
-    assert message
-    assert "cannot open file" in message.lower()
 
+class TestCleaningError:
+    """CleaningError includes step name."""
 
-def test_type_cast_error_for_unknown_target_dtype_has_clear_message():
-    frame = ar.from_pandas(pd.DataFrame({"age": [20, 30]}))
+    def test_step_name_in_message(self):
+        err = CleaningError("my_step", "something broke")
+        assert "my_step" in str(err)
+        assert err.step_name == "my_step"
 
-    with pytest.raises(ar.TypeCastError) as exc_info:
-        ar.cast_types(frame, {"age": "decimal"})
 
-    message = str(exc_info.value)
-    assert message
-    assert "unknown target dtype" in message.lower()
+class TestPipelineError:
+    """PipelineError includes step name and index."""
 
-
-def test_unknown_step_error_has_clear_message():
-    frame = ar.from_pandas(pd.DataFrame({"age": [20, 30]}))
-
-    with pytest.raises(ar.UnknownStepError) as exc_info:
-        ar.pipeline(frame, [("nonexistent_op",)])
-
-    message = str(exc_info.value)
-    assert message
-    assert "unknown pipeline step" in message.lower()
-    assert "available steps" in message.lower()
-
-
-def test_jsonl_read_error_is_arnio_error():
-    assert issubclass(ar.JsonlReadError, ar.ArnioError)
-    assert issubclass(ar.JsonlReadError, Exception)
-
-
-def test_jsonl_read_error_for_missing_file_has_clear_message(tmp_path):
-    missing_path = tmp_path / "missing.jsonl"
-
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(missing_path))
-
-    message = str(exc_info.value)
-    assert message
-    assert "missing.jsonl" in message
-
-
-def test_jsonl_read_error_for_empty_file_has_clear_message(tmp_path):
-    empty_file = tmp_path / "empty.jsonl"
-    empty_file.write_text("", encoding="utf-8")
-
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(empty_file))
-
-    message = str(exc_info.value)
-    assert message
-    assert "empty" in message.lower()
-
-
-def test_jsonl_read_error_for_blank_lines_only_file(tmp_path):
-    blank_file = tmp_path / "blank.jsonl"
-    blank_file.write_text("\n\n   \n\t\n", encoding="utf-8")
-
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(blank_file))
-
-    message = str(exc_info.value)
-    assert message
-    assert "empty" in message.lower()
-
-
-def test_jsonl_read_error_for_invalid_json_includes_line_number(tmp_path):
-    bad_json_file = tmp_path / "bad.jsonl"
-    bad_json_file.write_text(
-        '{"name": "Alice"}\n' "NOT VALID JSON\n" '{"name": "Bob"}\n',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(bad_json_file))
-
-    message = str(exc_info.value)
-    assert message
-    assert "line 2" in message
-
-
-def test_jsonl_read_error_for_non_object_json_line(tmp_path):
-    array_file = tmp_path / "array.jsonl"
-    array_file.write_text(
-        '{"name": "Alice"}\n' "[1, 2, 3]\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(array_file))
-
-    message = str(exc_info.value)
-    assert message
-    assert "line 2" in message
-    assert "json object" in message.lower()
-
-
-def test_jsonl_read_error_for_invalid_json_on_first_line(tmp_path):
-    bad_first = tmp_path / "bad_first.jsonl"
-    bad_first.write_text("{invalid json}\n", encoding="utf-8")
-
-    with pytest.raises(ar.JsonlReadError) as exc_info:
-        ar.read_jsonl(str(bad_first))
-
-    message = str(exc_info.value)
-    assert message
-    assert "line 1" in message
-
-
-def test_jsonl_read_error_can_be_caught_as_arnio_error(tmp_path):
-    missing_path = tmp_path / "nope.jsonl"
-
-    with pytest.raises(ar.ArnioError):
-        ar.read_jsonl(str(missing_path))
-
-
-def test_jsonl_read_error_message_is_non_empty_string():
-    err = ar.JsonlReadError("test error message")
-    assert str(err) == "test error message"
-
-
-def test_schema_validation_error_is_arnio_error():
-    assert issubclass(ar.SchemaValidationError, ar.ArnioError)
-
-
-def test_schema_validation_error_attributes():
-    message = "Schema validation failed"
-    result = "dummy_result"
-
-    exc = ar.SchemaValidationError(message, result=result)
-
-    assert str(exc) == message
-    assert exc.result == result
-
-
-def test_schema_validation_error_optional_result():
-    message = "Schema validation failed"
-
-    exc = ar.SchemaValidationError(message)
-
-    assert str(exc) == message
-    assert exc.result is None
-
-
-def test_pipeline_step_error_preserves_step_name_and_original_error():
-    orig_err = ValueError("bad custom transform")
-    step_err = ar.PipelineStepError("normalize_names", orig_err)
-
-    assert step_err.step_name == "normalize_names"
-    assert step_err.orig_err is orig_err
-
-
-def test_pipeline_step_error_has_clear_string_representation():
-    step_err = ar.PipelineStepError("normalize_names", RuntimeError("boom"))
-
-    message = str(step_err)
-    assert message
-    assert "custom pipeline step" in message.lower()
-    assert "normalize_names" in message
-    assert "boom" in message
+    def test_step_info(self):
+        cause = ValueError("bad value")
+        err = PipelineError("my_step", 3, cause)
+        assert err.step_name == "my_step"
+        assert err.step_index == 3
+        assert "step 3" in str(err)

@@ -1,0 +1,34 @@
+id,comments,score,notes
+813894,"line 1
+line 2",55.74,"yet
+another
+multiline
+note"
+778824,"quoted ""inner"" text
+with newlines",61.2064,no newline
+174203,"line 1
+line 2",51.2929,"first note
+second note"
+172249,"line 1
+line 2",63.8288,"first note
+second note"
+180901,"quoted ""inner"" text
+with newlines",48.2469,"first note
+second note"
+713572,short comment,28.8806,no newline
+102548,"another
+multiline
+comment",4.129,"yet
+another
+multiline
+note"
+750334,"quoted ""inner"" text
+with newlines",18.7019,no newline
+153828,"another
+multiline
+comment",29.2935,"yet
+another
+multiline
+note"
+171109,"line 1
+line 2",72.8659,no newline

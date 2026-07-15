@@ -1,0 +1,11 @@
+id,age,salary,name,city,active
+958172,74,53241.57,Diana,Tokyo,False
+506030,39,38276.09,Charlie,London,True
+757650,66,60245.48,Bob,,True
+565091,76,41423.14,Diana,London,True
+177817,60,43575.52,Bob,London,True
+511915,41,63670.3,Diana,London,True
+941919,59,101101.96,Alice,Tokyo,False
+972185,66,71186.7,Bob,,False
+965030,65,123341.91,Charlie,London,True
+614902,20,145846.26,Alice,London,
