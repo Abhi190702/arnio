@@ -1,8 +1,5 @@
 <div align="center">
-
-# arnio
-
-**Data trust for Python.**
+<img src="assets/arnio.png" alt="Arnio: Data trust for Python" width="800">
 
 Validate, clean, and profile DataFrames before everything else.
 
