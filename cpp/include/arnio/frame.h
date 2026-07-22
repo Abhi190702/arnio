@@ -43,7 +43,6 @@ class Frame {
     std::vector<Column> columns_;
     size_t row_count_ = 0;
     std::unordered_map<std::string, size_t> name_index_;
-    size_t row_count_ = 0;
     // row_count_known_ tracks whether row_count_ has been explicitly set.
     // - true: row_count_ is final and validated (set via constructor or first add_column if no columns provided)
     // - false: only used temporarily during empty Frame() construction
